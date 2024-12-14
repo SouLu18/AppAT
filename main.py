@@ -533,8 +533,8 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme_mode = ft.ThemeMode.LIGHT
     page.spacing = 0
-    page.window.width = 1000
-    page.window.height=600
+    page.window.max_width= 1500
+    page.window.max_height=1300
 
     page.appbar = ft.AppBar(
         bgcolor=ft.colors.ON_INVERSE_SURFACE,
