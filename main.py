@@ -51,7 +51,7 @@ def loading_screen(page: ft.Page):
             loading_status.value = "Iniciando"
             page.update()
             await asyncio.sleep(2)
-            HomeScreen(page)
+            LoginScreen(page)
 
         else:
             loading_status.value = 'Falha na Conexão'
@@ -69,13 +69,77 @@ def loading_screen(page: ft.Page):
     animate_loading()
 
 
-# Tela Principal (Home Screen)
-class HomeScreen(ft.Container):
+class LoginScreen(ft.Container):
     def __init__(self, page: ft.Page):
+        super().__init__()
+        page.vertical_alignment = ft.MainAxisAlignment.CENTER
+        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        page.appbar.visible=False
+        page.bgcolor = ft.colors.ON_PRIMARY_CONTAINER
+
+        link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+        requisicao = requests.get(f'{link}/Logins/.json')
+        dic_re = requisicao.json()
+    
+        if page.controls:
+            page.clean()
+
+        user = ft.TextField(on_submit=lambda e: login())
+        password = ft.TextField(on_submit=lambda e: login(), password=True, can_reveal_password=True)
+        alerta = ft.AlertDialog(
+            content=ft.Column(
+                [
+                    ft.Text('Acesso negado', size=18),
+                    ft.Text('Verifique as credenciais e tente novamente')
+                ],
+                height=20
+            )
+        )
+        
+        page.add(
+            ft.Container(
+                ft.Container(
+                    ft.Column(
+                        [
+                            ft.Container(content=ft.Text('Login', text_align=ft.TextAlign.END, size=32, color='#35588e'), margin=ft.Margin(0,10,0,0)),
+                            ft.Container(content=ft.Divider()),
+                            ft.Column([ft.Text('Usuário', color='#35588e', size=16), user]),
+                            ft.Column([ft.Text('Senha', color='#35588e', size=16), password]),
+                            ft.Checkbox('Continuar logado'),
+                            ft.Container(content=ft.ElevatedButton('Logar'), margin=ft.Margin(0,0,0,10))
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    margin=ft.Margin(20,0,20,0),
+                ),
+                margin=ft.Margin(400,0,400,0),
+                bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                border_radius=16
+            )
+        )
+
+        def login():
+            if user.value == 'arotec':
+                if password.value == dic_re['Default']['password']:
+                    HomeScreen(page, user.value)
+                else:
+                    page.open(alerta)
+            elif user.value == 'admin':
+                if password.value == dic_re['ADM']['password']:
+                    HomeScreen(page, user.value)
+            else:
+                page.open(alerta)
+                    
+
+
+class HomeScreen(ft.Container):
+    def __init__(self, page: ft.Page, user):
         super().__init__()
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.START
+        page.bgcolor = ft.colors.ON_PRIMARY
         page.appbar.visible=True
+        self.user = user
 
         if page.controls:
             page.clean()
@@ -151,7 +215,8 @@ class HomeScreen(ft.Container):
                 ),
                 border_radius=ft.border_radius.all(16),
                 height=200,
-                margin=ft.Margin(0,50,0,0)
+                expand=True,
+                alignment=ft.alignment.center
             )
         )
 
@@ -163,11 +228,11 @@ class HomeScreen(ft.Container):
                     margin=ft.Margin(20, 0, 60, 0),
                     content=ft.Row(
                         [
-                            ft.IconButton(ft.icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page)),
+                            ft.IconButton(ft.icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, self.user)),
                             ft.Row(
                                 [
-                                    ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page)),
-                                    ft.TextButton(content=ft.Text("Maquinas", size=22), disabled=True),
+                                    ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page, self.user)),
+                                    ft.TextButton(content=ft.Text("Máquinas", size=22), disabled=True),
                                 ],
                             ),
                             ft.Container()
@@ -177,16 +242,24 @@ class HomeScreen(ft.Container):
                 ),
                 ft.Divider(),
                 ft.Container(
-                    margin=ft.Margin(0,30,0,0),
-                    content=ft.ListView([
-                        ft.FilledTonalButton('Cortadoras', style=ft.ButtonStyle(text_style=ft.TextStyle(size=20)), on_click=lambda e: equip_list('Cortadoras')),
-                        ft.FilledTonalButton('Embutidoras', style=ft.ButtonStyle(text_style=ft.TextStyle(size=20)), on_click=lambda e: equip_list('Embutidoras')),
-                        ft.FilledTonalButton('Politrizes e Lixadeiras', style=ft.ButtonStyle(text_style=ft.TextStyle(size=20)), on_click=lambda e: equip_list('Politriz e Lixadeira')),
-                    ],
-                    spacing=20,
-                    width=600,
+                    margin=ft.Margin(0,0,0,0),
+                    content=ft.Column(
+                        [
+                            ft.ListView([
+                                    ft.FilledTonalButton('Cortadoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE ,text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0,-1)), on_click=lambda e: equip_list('Cortadoras')),
+                                    ft.FilledTonalButton('Embutidoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0,-1)), on_click=lambda e: equip_list('Embutidoras')),
+                                    ft.FilledTonalButton('Politrizes e Lixadeiras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0,-1)), on_click=lambda e: equip_list('Politriz e Lixadeira')),
+                                ],
+                                spacing=20,
+                                width=600,
+                                ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
                     ),
                     alignment=ft.alignment.center,
+                    expand=True,
+                    image=ft.DecorationImage(src='AppAT/assets/loading.png', opacity=0.1)
                 ),
             )
         
@@ -199,20 +272,36 @@ class HomeScreen(ft.Container):
             self.list_mach = ft.ListView(spacing=10, padding=0, divider_thickness=1, expand=True)
 
             for id in dic_mach:
-                self.list_mach.controls.append(
-                    ft.Row(
-                        [
-                            ft.Icon(ft.icons.ARROW_RIGHT),
-                            ft.TextButton(content=ft.Text(f'{id}'), on_click=lambda e, id=id: selected_maq(page, maquinas, id)),
-                            ft.Container(expand=True),
-                            ft.IconButton(ft.icons.EDIT, on_click=lambda e, id=id: edit(id) ),
-                            ft.PopupMenuButton(items=[
-                                ft.PopupMenuItem('Delete', ft.icons.DELETE, on_click=lambda e, id=id: delete(id)),
-                                ft.PopupMenuItem('Download', ft.icons.DOWNLOAD)
-                            ])
-                        ]
+                if self.user == 'admin':
+                    self.list_mach.controls.append(
+                        ft.Row(
+                            [
+                                ft.Icon(ft.icons.ARROW_RIGHT),
+                                ft.TextButton(content=ft.Text(f'{id}'), on_click=lambda e, id=id: selected_maq(page, maquinas, id)),
+                                ft.Container(expand=True),
+                                ft.IconButton(ft.icons.DOWNLOAD),
+                                ft.PopupMenuButton(items=[
+                                    ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click=lambda e, id=id: edit(id)),
+                                    ft.PopupMenuItem('Delete', ft.icons.DELETE, on_click=lambda e, id=id: delete(id))
+                                ])
+                            ]
+                        )
                     )
-                )
+                else:
+                    self.list_mach.controls.append(
+                        ft.Row(
+                            [
+                                ft.Icon(ft.icons.ARROW_RIGHT),
+                                ft.TextButton(content=ft.Text(f'{id}'), on_click=lambda e, id=id: selected_maq(page, maquinas, id)),
+                                ft.Container(expand=True),
+                                ft.IconButton(ft.icons.DOWNLOAD),
+                                ft.PopupMenuButton(items=[
+                                    ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click=lambda e, id=id: edit(id)),
+                                    ft.PopupMenuItem('Delete', ft.icons.DELETE, on_click=lambda e, id=id: delete(id), disabled=True)
+                                ])
+                            ]
+                        )
+                    )
 
             def edit(id):
                 def save():
@@ -283,8 +372,8 @@ class HomeScreen(ft.Container):
                             ft.IconButton(ft.icons.ARROW_BACK_ROUNDED, on_click=lambda e: Arotec()),
                             ft.Row(
                                 [
-                                    ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page)),
-                                    ft.TextButton(content=ft.Text("Maquinas", size=22), on_click=lambda e: Arotec()),
+                                    ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page, self.user)),
+                                    ft.TextButton(content=ft.Text("Máquinas", size=22), on_click=lambda e: Arotec()),
                                     ft.TextButton(content=ft.Text(f'{maquinas}', size=22), disabled=True),
                                 ],
                             ),
@@ -298,7 +387,7 @@ class HomeScreen(ft.Container):
                     margin=ft.Margin(90,10,0,0),
                     content=ft.Row(
                         [
-                            ft.ElevatedButton(icon=ft.icons.ADD, text='Novo Modelo', on_click=lambda e: new_model(page, maquinas))
+                            ft.ElevatedButton(icon=ft.icons.ADD, text='Adicionar Máquina', on_click=lambda e: new_model(page, maquinas))
                         ]
                     ),
                 ),
@@ -319,57 +408,61 @@ class HomeScreen(ft.Container):
                 if id == 'status':
                     pass
                 else:
-                    self.list_problem.controls.append(
-                        ft.Container(
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.icons.ARROW_RIGHT),
-                                    ft.Text(f'{id}', size=20),
-                                    ft.Container(expand=True),
-                                    ft.IconButton(ft.icons.EDIT, on_click= lambda e, id=id: edit(id)),
-                                    ft.PopupMenuButton(items=[
-                                        ft.PopupMenuItem('Delete', ft.icons.DELETE, on_click=lambda e, id=id: delete(id)),
-                                        ft.PopupMenuItem('Download', ft.icons.DOWNLOAD)
-                                    ])
-                                ]
-                            ),
-                            bgcolor=ft.colors.ON_INVERSE_SURFACE,
-                            border_radius=16,
-                            on_click= lambda e, id=id: troub(id, click=False)
+                    if self.user == 'admin':
+                        self.list_problem.controls.append(
+                            ft.Container(
+                                ft.Row(
+                                    [
+                                        ft.Icon(ft.icons.ARROW_RIGHT),
+                                        ft.Text(f'{id}', size=20),
+                                        ft.Container(expand=True),
+                                        ft.IconButton(ft.icons.DOWNLOAD),
+                                        ft.PopupMenuButton(items=[
+                                            ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click= lambda e, id=id: edit(id)),
+                                            ft.PopupMenuItem('Deletar', ft.icons.DELETE, on_click=lambda e, id=id: delete(id)),
+                                        ])
+                                    ]
+                                ),
+                                bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                                border_radius=16,
+                                on_click= lambda e, id=id: selected_comp(maq,model,id)
+                            )
                         )
-                    )
+                    else:
+                        self.list_problem.controls.append(
+                            ft.Container(
+                                ft.Row(
+                                    [
+                                        ft.Icon(ft.icons.ARROW_RIGHT),
+                                        ft.Text(f'{id}', size=20),
+                                        ft.Container(expand=True),
+                                        ft.IconButton(ft.icons.DOWNLOAD),
+                                        ft.PopupMenuButton(items=[
+                                            ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click= lambda e, id=id: edit(id)),
+                                            ft.PopupMenuItem('Deletar', ft.icons.DELETE, on_click=lambda e, id=id: delete(id), disabled=True),
+                                        ])
+                                    ]
+                                ),
+                                bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                                border_radius=16,
+                                on_click= lambda e, id=id: selected_comp(maq,model,id)
+                            )
+                        )
+
             page.controls[0].content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{model}', size=22), disabled=True))
             page.controls[0].content.controls[0].on_click = lambda e: equip_list(maq)
             page.controls[0].content.controls[1].controls[2].disabled = False
             page.controls[0].content.controls[1].controls[2].on_click = lambda e: equip_list(maq)
-            page.controls[2].content.controls[0].text = 'Adicionar Categoria'
+            page.controls[2].content.controls[0].text = 'Adicionar Componente'
             page.controls[2].content.controls[0].on_click = lambda e: new_category()
-            del page.controls[3]
+            del page.controls[-1]
             page.add(
                 ft.Container(
                     margin=ft.Margin(20,20,20,20),
                     content=self.list_problem,
                     expand=True
                 )  
-            )
-
-            def troub(id, click):
-                if click:
-                    page.controls[2].content.controls[0].visible=True
-                    page.controls[0].content.controls[1].controls.pop()
-                    selected_maq(page, maq, model)
-                else:
-                    page.controls[2].content.controls[0].visible=False
-                    del page.controls[3]
-
-                    for cont in self.list_problem.controls:
-                        if cont.content.controls[1].value == id:
-                            cont.content.controls[0].rotate = ft.Rotate(angle=3.14159 / 2)
-                            cont.on_click = lambda e, id=id: troub(id, click=True)
-                            page.add(cont)
-
-                    page.update()
-                
+            )                
 
             def delete(id):
                 emoji = '\u26A0'
@@ -416,7 +509,7 @@ class HomeScreen(ft.Container):
                     selected_maq(page, maq, model)
 
 
-                self.edit = ft.TextField(label='Categoria', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+                self.edit = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
 
                 dlg = ft.AlertDialog(
                     actions=[
@@ -449,7 +542,7 @@ class HomeScreen(ft.Container):
                     page.controls[0].content.controls[1].controls.pop()
                     selected_maq(page, maq, model)
 
-                self.category = ft.TextField(label='Categoria', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+                self.category = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
 
                 dlg = ft.AlertDialog(
                     actions=[
@@ -465,6 +558,199 @@ class HomeScreen(ft.Container):
                 )
                 page.open(dlg)
 
+
+        def selected_comp(maq, model, comp):
+
+            def reload_problems():
+                # Limpa a interface
+                exp_list.controls.clear()
+                page.update()
+
+                # Recarrega os dados do Firebase
+                link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+                requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}.json')
+                dic_trouble = requisicao.json()
+
+                # Reconstrói a lista
+                for problem in dic_trouble:
+                    problem_details = dic_trouble[problem]
+                    if isinstance(problem_details, dict):
+                        descricao = problem_details.get('descrição', 'Descrição não encontrada')
+                        solucao = problem_details.get('solução', 'Solução não encontrada')
+                    else:
+                        continue
+
+                    exp_list.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                        [
+                            ft.Row([ft.Text(f'{problem}')]),
+                            ft.Divider(),
+                            ft.Row(
+                                [
+                                    ft.Column([ft.Text(f'Detalhes'), ft.Container(ft.Text(f'{descricao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10 )]),
+                                    ft.Container(),
+                                    ft.Column([ft.Text(f'Solução'), ft.Container(ft.Text(f'{solucao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
+                                    ft.Container(expand=True),
+                                    ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
+                                    ft.IconButton(icon=ft.icons.EDIT)
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            )
+                        ]
+                        ),
+                        border_radius=16,
+                        bgcolor=ft.colors.ON_INVERSE_SURFACE
+                    )
+                )
+                page.update()
+
+            def back():
+                del page.controls[0].content.controls[1].controls[4]
+                del page.controls[0].content.controls[1].controls[3]
+                del page.controls[-1]
+                selected_maq(page, maq, model)
+
+            def delete(item):
+                emoji = '\u26A0'
+                alerta = ft.AlertDialog(
+                        modal=True,
+                        title=ft.Text(f"Você realmente deseja apagar {item}?"),
+                        content=ft.ResponsiveRow([ 
+                                    ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
+                                ]),
+                        actions=[
+                            ft.TextButton("Sim", on_click=lambda e: yes_no('yes')),
+                            ft.TextButton("Não", on_click=lambda e: yes_no('no')),
+                        ],
+                        actions_alignment=ft.MainAxisAlignment.END,
+                    )
+                page.open(alerta)
+                page.update()
+
+                def yes_no(answer):
+                    if answer == 'yes':
+                        requests.delete(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}/{item}.json')
+                        reload_problems()
+                    page.close(alerta)
+                    page.update()
+            
+            def new_problem():
+                def save():
+                    dlg.actions.clear()
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.ProgressRing(), ft.Text('Registrando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
+                    link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+                    dados = {'descrição': f'{detail.value}', 'solução': f'{resolution.value}'}
+                    requests.put(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}/{descricao.value}.json', data=json.dumps(dados))
+                    page.close(dlg)
+                    reload_problems()
+
+                descricao = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+                detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save())
+                resolution = ft.TextField(label='Solução', border_radius=16, on_submit=lambda e: save())
+
+                dlg = ft.AlertDialog(
+                    actions=[
+                        ft.Column(
+                            [
+                                descricao,
+                                detail,
+                                resolution,
+                                ft.FilledButton(text="Salvar", on_click=lambda e: save())
+                            ],
+                            spacing=8
+                        ),
+                    ],
+                    actions_padding=10,
+                )
+                page.open(dlg)
+                page.update()
+
+            page.controls[0].content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{comp}', size=22), disabled=True))
+            page.controls[0].content.controls[0].on_click = lambda e: back()
+            page.controls[0].content.controls[1].controls[3].disabled = False
+            page.controls[0].content.controls[1].controls[3].on_click = lambda e: back()
+            page.controls[2].content.controls[0].text = 'Adicionar Problemas'
+            link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+            requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}.json')
+            dic_trouble = requisicao.json()
+            page.controls[2].content.controls[0].on_click = lambda e: new_problem()
+            page.update()
+
+            del page.controls[-1]
+            self.match = False
+
+            for cont in self.list_problem.controls:
+                if cont.content.controls[1].value == comp:
+                    self.match = True
+                    cont.margin=ft.Margin(5,15,5,5)
+                    cont.content.controls[0].rotate = ft.Rotate(angle=3.14159 / 2)
+                    page.add(cont)
+            page.update()
+
+            exp_list = ft.ListView(spacing=20)
+
+            if self.match:
+                page.add(
+                    ft.Container(
+                        exp_list,
+                        expand=True,
+                        margin=ft.Margin(20,15,20,0),
+                    )
+                )       
+
+            for problem in dic_trouble:
+                problem_details = dic_trouble[problem]
+                if isinstance(problem_details, dict):
+                    descricao = problem_details.get('descrição', 'Descrição não encontrada')
+                    solucao = problem_details.get('solução', 'Solução não encontrada')
+                else:
+                    continue
+
+                exp_list.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                        [
+                            ft.Row([ft.Text(f'{problem}')], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
+                            ft.Divider(),
+                            ft.Container(
+                                margin=ft.Margin(20,10,20,10),
+                                content=ft.Row(
+                                    [
+                                        ft.Column(
+                                            [
+                                                ft.Column([ft.Text(f'Detalhes'), ft.Container(ft.Text(f'{descricao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
+                                                ft.Container(),
+                                                ft.Column([ft.Text(f'Solução'), ft.Container(ft.Text(f'{solucao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
+                                                ft.Container(expand=True),
+                                            ]
+                                        ),
+                                        ft.Row(
+                                            [
+                                                ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
+                                                ft.IconButton(icon=ft.icons.EDIT)
+                                            ],
+                                            height=40
+                                        )
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                )
+                            )
+                        ]
+                        ),
+                        border_radius=16,
+                        bgcolor=ft.colors.ON_INVERSE_SURFACE
+                    )
+                )
+            page.update()     
+
+            
         
         def add_list(maq, model):                    
             link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
@@ -509,7 +795,7 @@ class HomeScreen(ft.Container):
                 equip_list(mach)
                 
 
-            self.name = ft.TextField(label='Nome do Modelo', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+            self.name = ft.TextField(label='Nome da Máquina', border_radius=16, on_submit=lambda e: save(), autofocus=True)
 
             dlg = ft.AlertDialog(
                 actions=[
@@ -546,7 +832,7 @@ def main(page: ft.Page):
                 content=ft.Row(
                     [
                         ft.IconButton(ft.icons.SEARCH_SHARP, on_click=lambda e: search_btn(), on_blur=lambda e: close_search()),
-                        ft.IconButton(ft.icons.MENU),
+                        ft.IconButton(ft.icons.MENU, on_click=lambda e: open_drawer()),
                     ]
                 ),
                 margin=ft.Margin(0,0,10,0)
@@ -569,25 +855,27 @@ def main(page: ft.Page):
     def handle_change(e):
         page.add(ft.Text(f"Selected Index changed: {e.control.selected_index}"))
 
-    drawer = ft.NavigationDrawer(
-        on_dismiss=handle_dismissal,
-        on_change=handle_change,
-        controls=[
-            ft.Container(height=12),
-            ft.Text('Menu', text_align=ft.TextAlign.CENTER),
-            ft.Divider(thickness=2),
-            ft.NavigationDrawerDestination(
-                selected_icon_content=ft.Icon(ft.icons.BUILD),
-                icon_content=ft.Icon(ft.icons.BUILD_OUTLINED),
-                label="Troubleshooting",
-            ),
-            ft.NavigationDrawerDestination(
-                selected_icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_ROUNDED),
-                icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_OUTLINED),
-                label="Manuais",
-            ),
-        ],
-    )
+    def open_drawer():
+        drawer = ft.NavigationDrawer(
+            on_dismiss=handle_dismissal,
+            on_change=handle_change,
+            controls=[
+                ft.Container(height=12),
+                ft.Text('Menu', text_align=ft.TextAlign.CENTER),
+                ft.Divider(thickness=2),
+                ft.NavigationDrawerDestination(
+                    selected_icon_content=ft.Icon(ft.icons.BUILD),
+                    icon_content=ft.Icon(ft.icons.BUILD_OUTLINED),
+                    label="Troubleshooting",
+                ),
+                ft.NavigationDrawerDestination(
+                    selected_icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_ROUNDED),
+                    icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_OUTLINED),
+                    label="Manuais",
+                ),
+            ],
+        )
+        page.add(drawer)
 
     def close_search(e=None):
         # Remove o campo de busca e restaura o título original
@@ -611,7 +899,7 @@ def main(page: ft.Page):
     page.bgcolor = ft.colors.ON_PRIMARY
 
     # Inicializa com a tela de Loading
-    HomeScreen(page)
+    loading_screen(page)
 
 # Executa o aplicativo
 ft.app(target=main)
