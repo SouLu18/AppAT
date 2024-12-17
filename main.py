@@ -112,7 +112,7 @@ class LoginScreen(ft.Container):
                     ),
                     margin=ft.Margin(20,0,20,0),
                 ),
-                margin=ft.Margin(400,0,400,0),
+                width=400,
                 bgcolor=ft.colors.ON_INVERSE_SURFACE,
                 border_radius=16
             )
@@ -717,7 +717,8 @@ class HomeScreen(ft.Container):
                     ft.Container(
                         content=ft.Column(
                         [
-                            ft.Row([ft.Text(f'{problem}')], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
+                            ft.Container(),
+                            ft.Row([ft.Text(f'{problem}', size=20)], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
                             ft.Divider(),
                             ft.Container(
                                 margin=ft.Margin(20,10,20,10),
@@ -725,19 +726,44 @@ class HomeScreen(ft.Container):
                                     [
                                         ft.Column(
                                             [
-                                                ft.Column([ft.Text(f'Detalhes'), ft.Container(ft.Text(f'{descricao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
-                                                ft.Container(),
-                                                ft.Column([ft.Text(f'Solução'), ft.Container(ft.Text(f'{solucao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
-                                                ft.Container(expand=True),
+                                                ft.Row(
+                                                    [
+                                                        ft.Column(
+                                                            [
+                                                                ft.Text(f'Detalhes', size=20), 
+                                                                ft.Container(
+                                                                    ft.Text(f'{descricao}', size=18), 
+                                                                    border= ft.border.all(color='black'), 
+                                                                    border_radius=ft.border_radius.all(8), 
+                                                                    padding=10
+                                                                )
+                                                            ],
+                                                            width=400
+                                                        ),
+                                                        ft.Container(width=20),
+                                                        ft.Column(
+                                                            [
+                                                                ft.Text(f'Solução', size=20), 
+                                                                ft.Container(
+                                                                    ft.Text(f'{solucao}', size=18), 
+                                                                    border= ft.border.all(color='black'), 
+                                                                    border_radius=ft.border_radius.all(8), 
+                                                                    padding=10
+                                                                )
+                                                            ],
+                                                            width=400
+                                                        ),
+                                                    ]
+                                                ),
+                                                ft.Row(
+                                                    [
+                                                        ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
+                                                        ft.IconButton(icon=ft.icons.EDIT)
+                                                    ],
+                                                    height=40
+                                                )
                                             ]
                                         ),
-                                        ft.Row(
-                                            [
-                                                ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
-                                                ft.IconButton(icon=ft.icons.EDIT)
-                                            ],
-                                            height=40
-                                        )
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN
                                 )
@@ -819,8 +845,8 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme_mode = ft.ThemeMode.LIGHT
     page.spacing = 0
-    page.window.max_width= 1500
-    page.window.max_height=1300
+    # page.window.max_width= 1500
+    # page.window.max_height=1300
 
     page.appbar = ft.AppBar(
         bgcolor=ft.colors.ON_INVERSE_SURFACE,
@@ -899,7 +925,7 @@ def main(page: ft.Page):
     page.bgcolor = ft.colors.ON_PRIMARY
 
     # Inicializa com a tela de Loading
-    loading_screen(page)
+    HomeScreen(page, 'admin')
 
 # Executa o aplicativo
 ft.app(target=main)
