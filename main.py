@@ -582,25 +582,99 @@ class HomeScreen(ft.Container):
 
                     exp_list.controls.append(
                     ft.Container(
-                        content=ft.Column(
-                        [
-                            ft.Row([ft.Text(f'{problem}')]),
-                            ft.Divider(),
-                            ft.Row(
-                                [
-                                    ft.Column([ft.Text(f'Detalhes'), ft.Container(ft.Text(f'{descricao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10 )]),
-                                    ft.Container(),
-                                    ft.Column([ft.Text(f'Solução'), ft.Container(ft.Text(f'{solucao}'), border= ft.border.all(color='black'), border_radius=ft.border_radius.all(8), padding=10)]),
-                                    ft.Container(expand=True),
-                                    ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
-                                    ft.IconButton(icon=ft.icons.EDIT)
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            )
-                        ]
+                        ft.Column(
+                            [
+                                # Texto principal
+                                ft.Row([ft.Text(f'{problem}', size=20)], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
+                                ft.Divider(),
+                                
+                                # Container com Row ajustável
+                                ft.Container(
+                                    margin=ft.Margin(20, 5, 20, 10),
+                                    content=ft.Row(
+                                        [
+                                            # Detalhes
+                                            ft.Column(
+                                                [
+                                                    ft.Text(f'Detalhes', size=20),
+                                                    ft.Container(
+                                                        ft.Column(
+                                                            [
+                                                                ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'),
+                                                                ft.Divider(),
+                                                                ft.Row([ft.IconButton('open_in_new'), ft.IconButton('edit')])
+                                                            ],
+                                                            spacing=0
+                                                        ),
+                                                        border=ft.border.all(color='black'),
+                                                        border_radius=ft.border_radius.all(8),
+                                                        padding=10,
+                                                        expand=True  # Ajusta automaticamente o espaço disponível
+                                                    )
+                                                ],
+                                                expand=True,  # Expande para ocupar o espaço disponível
+                                                horizontal_alignment='center'
+                                            ),
+                                            
+                                            # Espaço entre as colunas
+                                            ft.Container(),
+
+                                            # Solução
+                                            ft.Column(
+                                                [
+                                                    ft.Text(f'Solução', size=20),
+                                                    ft.Container(
+                                                        ft.Column(
+                                                            [
+                                                                ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'),
+                                                                ft.Divider(),
+                                                                ft.Row([ft.IconButton('open_in_new'), ft.IconButton('edit')])
+                                                            ],
+                                                            spacing=0
+                                                        ),
+                                                        border=ft.border.all(color='black'),
+                                                        border_radius=ft.border_radius.all(8),
+                                                        padding=10,
+                                                        expand=True  # Ajusta automaticamente o espaço disponível
+                                                    )
+                                                ],
+                                                expand=True,  # Expande para ocupar o espaço disponível
+                                                horizontal_alignment='center'
+                                            )
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        expand=True  # Permite que a Row se expanda
+                                    )
+                                ),
+                                
+                                # Botão de exclusão
+                                ft.Container(
+                                    ft.Row(
+                                        controls = [
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE, 
+                                                on_click=lambda e, problem=problem: delete(problem)
+                                            ),
+                                            ft.Icon('check_circle')
+                                        ] if solucao != 'Solução não encontrada' else [
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE, 
+                                                on_click=lambda e, problem=problem: delete(problem)
+                                            ),
+                                            ft.Icon('circle', color='red')
+                                        ],
+                                        alignment='spaceBetween'
+                                    ),
+                                    margin=ft.Margin(20, 0, 20, 0)
+                                )
+                            ],
+                            expand=True,  # Expande a coluna para ocupar o espaço disponível
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=0
                         ),
                         border_radius=16,
-                        bgcolor=ft.colors.ON_INVERSE_SURFACE
+                        bgcolor='oninversesurface',
+                        padding=ft.Padding(top=20, left=0, right=0, bottom=0),
                     )
                 )
                 page.update()
@@ -637,19 +711,31 @@ class HomeScreen(ft.Container):
             
             def new_problem():
                 def save():
-                    dlg.actions.clear()
-                    dlg.actions.append(
-                        ft.Container(
-                            ft.Column([ft.ProgressRing(), ft.Text('Registrando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
+                    if descricao.value =='':
+                        descricao.error_text='Adicione uma descrição'
+                        descricao.focus()
+                    elif detail.value =='':
+                        descricao.error_text=None
+                        detail.error_text='Adicione os detalhes do erro'
+                        detail.focus()
+                    elif resolution.value=='':
+                        resolution.value='Solução não encontrada'
+                    else:
+                        if resolution.value=='':
+                            resolution.value='Solução não encontrada'
+                        dlg.actions.clear()
+                        dlg.actions.append(
+                            ft.Container(
+                                ft.Column([ft.ProgressRing(), ft.Text('Registrando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                alignment=ft.alignment.center
+                            )
                         )
-                    )
-                    page.update()
-                    link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
-                    dados = {'descrição': f'{detail.value}', 'solução': f'{resolution.value}'}
-                    requests.put(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}/{descricao.value}.json', data=json.dumps(dados))
-                    page.close(dlg)
-                    reload_problems()
+                        page.update()
+                        link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+                        dados = {'descrição': f'{detail.value}', 'solução': f'{resolution.value}'}
+                        requests.put(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}/{descricao.value}.json', data=json.dumps(dados))
+                        page.close(dlg)
+                        reload_problems()
 
                 descricao = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
                 detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save())
@@ -691,10 +777,11 @@ class HomeScreen(ft.Container):
                     self.match = True
                     cont.margin=ft.Margin(5,15,5,5)
                     cont.content.controls[0].rotate = ft.Rotate(angle=3.14159 / 2)
+                    cont.on_click = lambda e: back()
                     page.add(cont)
             page.update()
 
-            exp_list = ft.ListView(spacing=20)
+            exp_list = ft.ListView(spacing=20, expand=True)
 
             if self.match:
                 page.add(
@@ -715,67 +802,104 @@ class HomeScreen(ft.Container):
 
                 exp_list.controls.append(
                     ft.Container(
-                        content=ft.Column(
-                        [
-                            ft.Container(),
-                            ft.Row([ft.Text(f'{problem}', size=20)], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
-                            ft.Divider(),
-                            ft.Container(
-                                margin=ft.Margin(20,10,20,10),
-                                content=ft.Row(
-                                    [
-                                        ft.Column(
-                                            [
-                                                ft.Row(
-                                                    [
+                        ft.Column(
+                            [
+                                # Texto principal
+                                ft.Row([ft.Text(f'{problem}', size=20)], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
+                                ft.Divider(),
+                                
+                                # Container com Row ajustável
+                                ft.Container(
+                                    margin=ft.Margin(20, 5, 20, 10),
+                                    content=ft.Row(
+                                        [
+                                            # Detalhes
+                                            ft.Column(
+                                                [
+                                                    ft.Text(f'Detalhes', size=20),
+                                                    ft.Container(
                                                         ft.Column(
                                                             [
-                                                                ft.Text(f'Detalhes', size=20), 
-                                                                ft.Container(
-                                                                    ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'), 
-                                                                    border= ft.border.all(color='black'), 
-                                                                    border_radius=ft.border_radius.all(8), 
-                                                                    padding=10
-                                                                )
+                                                                ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'),
+                                                                ft.Divider(),
+                                                                ft.Row([ft.IconButton('open_in_new'), ft.IconButton('edit')])
                                                             ],
-                                                            width=400
+                                                            spacing=0
                                                         ),
+                                                        border=ft.border.all(color='black'),
+                                                        border_radius=ft.border_radius.all(8),
+                                                        padding=10,
+                                                        expand=True  # Ajusta automaticamente o espaço disponível
+                                                    )
+                                                ],
+                                                expand=True,  # Expande para ocupar o espaço disponível
+                                                horizontal_alignment='center'
+                                            ),
+                                            
+                                            # Espaço entre as colunas
+                                            ft.Container(),
+
+                                            # Solução
+                                            ft.Column(
+                                                [
+                                                    ft.Text(f'Solução', size=20),
+                                                    ft.Container(
                                                         ft.Column(
                                                             [
-                                                                ft.Text(f'Solução', size=20), 
-                                                                ft.Container(
-                                                                    ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'), 
-                                                                    border= ft.border.all(color='black'), 
-                                                                    border_radius=ft.border_radius.all(8), 
-                                                                    padding=10
-                                                                )
+                                                                ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'),
+                                                                ft.Divider(),
+                                                                ft.Row(controls=[ft.IconButton('open_in_new'), ft.IconButton('edit')])
                                                             ],
-                                                            width=400
+                                                            spacing=0
                                                         ),
-                                                    ]
-                                                ),
-                                                ft.Row(
-                                                    [
-                                                        ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
-                                                        ft.IconButton(icon=ft.icons.EDIT)
-                                                    ],
-                                                )
-                                            ]
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.START
+                                                        border=ft.border.all(color='black'),
+                                                        border_radius=ft.border_radius.all(8),
+                                                        padding=10,
+                                                        expand=True,
+                                                        bgcolor='oninversesurface'
+                                                    )
+                                                ],
+                                                expand=True,  # Expande para ocupar o espaço disponível
+                                                horizontal_alignment='center'
+                                            )
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        expand=True  # Permite que a Row se expanda
+                                    )
+                                ),
+                                
+                                # Botão de exclusão
+                                ft.Container(
+                                    ft.Row(
+                                        controls = [
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE, 
+                                                on_click=lambda e, problem=problem: delete(problem)
+                                            ),
+                                            ft.Icon('check_circle')
+                                        ] if solucao != 'Solução não encontrada' else [
+                                            ft.IconButton(
+                                                icon=ft.icons.DELETE, 
+                                                on_click=lambda e, problem=problem: delete(problem)
+                                            ),
+                                            ft.Icon('circle', color='red')
+                                        ],
+                                        alignment='spaceBetween'
+                                    ),
+                                    margin=ft.Margin(20, 0, 20, 0)
                                 )
-                            )
-                        ]
+                            ],
+                            expand=True,  # Expande a coluna para ocupar o espaço disponível
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=0
                         ),
                         border_radius=16,
-                        bgcolor=ft.colors.ON_INVERSE_SURFACE
+                        bgcolor='oninversesurface',
+                        padding=ft.Padding(top=20, left=0, right=0, bottom=0),
                     )
                 )
-            page.update()     
+            page.update()  
 
-            
-        
         def add_list(maq, model):                    
             link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
             requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Problemas.json')
@@ -843,8 +967,7 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme_mode = ft.ThemeMode.LIGHT
     page.spacing = 0
-    # page.window.max_width= 1500
-    # page.window.max_height=1300
+    page.window.maximized = True
 
     page.appbar = ft.AppBar(
         bgcolor=ft.colors.ON_INVERSE_SURFACE,
@@ -873,33 +996,15 @@ def main(page: ft.Page):
         height=50
     )
 
-    def handle_dismissal(e):
-        page.add(ft.Text("Drawer dismissed"))
-
-    def handle_change(e):
-        page.add(ft.Text(f"Selected Index changed: {e.control.selected_index}"))
-
     def open_drawer():
-        drawer = ft.NavigationDrawer(
-            on_dismiss=handle_dismissal,
-            on_change=handle_change,
+        end_drawer = ft.NavigationDrawer(
+            position=ft.NavigationDrawerPosition.END,
             controls=[
-                ft.Container(height=12),
-                ft.Text('Menu', text_align=ft.TextAlign.CENTER),
-                ft.Divider(thickness=2),
-                ft.NavigationDrawerDestination(
-                    selected_icon_content=ft.Icon(ft.icons.BUILD),
-                    icon_content=ft.Icon(ft.icons.BUILD_OUTLINED),
-                    label="Troubleshooting",
-                ),
-                ft.NavigationDrawerDestination(
-                    selected_icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_ROUNDED),
-                    icon_content=ft.Icon(ft.icons.DRIVE_FILE_MOVE_OUTLINED),
-                    label="Manuais",
-                ),
+                ft.NavigationDrawerDestination(icon=ft.icons.ADD_TO_HOME_SCREEN_SHARP, label="Item 1"),
+                ft.NavigationDrawerDestination(icon=ft.Icon(ft.icons.ADD_COMMENT), label="Item 2"),
             ],
         )
-        page.add(drawer)
+        page.open(end_drawer)
 
     def close_search(e=None):
         # Remove o campo de busca e restaura o título original
@@ -916,9 +1021,7 @@ def main(page: ft.Page):
             # cursor_height=15
         )
         page.update()
-
-    # page.window.title_bar_hidden = True
-    # page.window.icon = caminho para arquivo .ico
+    
 
     page.bgcolor = ft.colors.ON_PRIMARY
 
