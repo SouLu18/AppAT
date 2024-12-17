@@ -732,7 +732,7 @@ class HomeScreen(ft.Container):
                                                             [
                                                                 ft.Text(f'Detalhes', size=20), 
                                                                 ft.Container(
-                                                                    ft.Text(f'{descricao}', size=18), 
+                                                                    ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'), 
                                                                     border= ft.border.all(color='black'), 
                                                                     border_radius=ft.border_radius.all(8), 
                                                                     padding=10
@@ -740,12 +740,11 @@ class HomeScreen(ft.Container):
                                                             ],
                                                             width=400
                                                         ),
-                                                        ft.Container(width=20),
                                                         ft.Column(
                                                             [
                                                                 ft.Text(f'Solução', size=20), 
                                                                 ft.Container(
-                                                                    ft.Text(f'{solucao}', size=18), 
+                                                                    ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'), 
                                                                     border= ft.border.all(color='black'), 
                                                                     border_radius=ft.border_radius.all(8), 
                                                                     padding=10
@@ -760,12 +759,11 @@ class HomeScreen(ft.Container):
                                                         ft.IconButton(icon=ft.icons.DELETE, on_click= lambda e, problem = problem: delete(problem)),
                                                         ft.IconButton(icon=ft.icons.EDIT)
                                                     ],
-                                                    height=40
                                                 )
                                             ]
                                         ),
                                     ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                    alignment=ft.MainAxisAlignment.START
                                 )
                             )
                         ]
