@@ -163,7 +163,7 @@ class HomeScreen(ft.Container):
                         ft.Container(
                             ft.Image("AppAT/assets/arotec.png"), width=140, height=160, 
                             bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: Arotec(),
+                            ink=True, on_click=lambda e: Arotec(), padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
@@ -173,9 +173,9 @@ class HomeScreen(ft.Container):
                                     ),
                             ),
                         ft.Container(
-                            ft.Image("AppAT/assets/struers1.png"), width=140, height=160, 
+                            ft.Image("AppAT/assets/struers.png"), width=140, height=160, 
                             bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'),
+                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
@@ -187,7 +187,7 @@ class HomeScreen(ft.Container):
                         ft.Container(
                             ft.Image("AppAT/assets/foerster.png"), width=140, height=160, 
                             bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'),
+                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
@@ -197,9 +197,9 @@ class HomeScreen(ft.Container):
                                     )
                             ),
                         ft.Container(
-                            ft.Image("AppAT/assets/Evident.png"), width=140, height=160, 
+                            ft.Image("AppAT/assets/evident.png"), width=140, height=160, 
                             bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'),
+                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
@@ -625,10 +625,18 @@ class HomeScreen(ft.Container):
                                                     ft.Text(f'Solução', size=20),
                                                     ft.Container(
                                                         ft.Column(
-                                                            [
+                                                            controls= [
                                                                 ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'),
                                                                 ft.Divider(),
                                                                 ft.Row([ft.IconButton('open_in_new'), ft.IconButton('edit')])
+                                                            ] if solucao != 'Adicionar Soluções' else [
+                                                                ft.TextButton(
+                                                                    content=ft.Row(
+                                                                        [ft.Icon('add'),ft.Text(f'{solucao}', size=18, text_align='center')]
+                                                                    )
+                                                                ),
+                                                                ft.Divider(),
+                                                                ft.Row([ft.IconButton('open_in_new', disabled=True), ft.IconButton('edit', disabled=True)])
                                                             ],
                                                             spacing=0
                                                         ),
@@ -643,7 +651,8 @@ class HomeScreen(ft.Container):
                                             )
                                         ],
                                         alignment=ft.MainAxisAlignment.CENTER,
-                                        expand=True  # Permite que a Row se expanda
+                                        expand=True,  # Permite que a Row se expanda
+                                        vertical_alignment='start'
                                     )
                                 ),
                                 
@@ -656,7 +665,7 @@ class HomeScreen(ft.Container):
                                                 on_click=lambda e, problem=problem: delete(problem)
                                             ),
                                             ft.Icon('check_circle')
-                                        ] if solucao != 'Solução não encontrada' else [
+                                        ] if solucao != 'Adicionar Soluções' else [
                                             ft.IconButton(
                                                 icon=ft.icons.DELETE, 
                                                 on_click=lambda e, problem=problem: delete(problem)
@@ -718,11 +727,9 @@ class HomeScreen(ft.Container):
                         descricao.error_text=None
                         detail.error_text='Adicione os detalhes do erro'
                         detail.focus()
-                    elif resolution.value=='':
-                        resolution.value='Solução não encontrada'
                     else:
                         if resolution.value=='':
-                            resolution.value='Solução não encontrada'
+                            resolution.value='Adicionar Soluções'
                         dlg.actions.clear()
                         dlg.actions.append(
                             ft.Container(
@@ -736,7 +743,6 @@ class HomeScreen(ft.Container):
                         requests.put(f'{link}/Equipamentos/{maq}/{model}/Problemas/{comp}/{descricao.value}.json', data=json.dumps(dados))
                         page.close(dlg)
                         reload_problems()
-
                 descricao = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
                 detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save())
                 resolution = ft.TextField(label='Solução', border_radius=16, on_submit=lambda e: save())
@@ -757,6 +763,71 @@ class HomeScreen(ft.Container):
                 )
                 page.open(dlg)
                 page.update()
+                        
+            def delete_comp(id):
+                emoji = '\u26A0'
+                alerta = ft.AlertDialog(
+                        modal=True,
+                        title=ft.Text(f"Você realmente deseja apagar {id}?"),
+                        content=ft.ResponsiveRow([ 
+                                    ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
+                                ]),
+                        actions=[
+                            ft.TextButton("Sim", on_click=lambda e: yes_no('yes')),
+                            ft.TextButton("Não", on_click=lambda e: yes_no('no')),
+                        ],
+                        actions_alignment=ft.MainAxisAlignment.END,
+                    )
+                page.open(alerta)
+                def yes_no(answer):
+                    if answer == 'yes':
+                        requests.delete(f'{link}/Equipamentos/{maq}/{model}/Problemas/{id}.json')
+                        page.close(alerta)
+                        page.controls[0].content.controls[1].controls.pop()
+                        page.controls[0].content.controls[1].controls.pop()
+                        del page.controls[-1]
+                        selected_maq(page, maq, model)
+                    else:
+                        page.close(alerta)
+
+            def edit_comp(id):
+                def save():
+                    dlg.actions.clear()
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.ProgressRing(), ft.Text('Salvando alteração')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
+                    old_path = f'{link}/Equipamentos/{maq}/{model}/Problemas/{id}/'
+                    new_path = f'{link}/Equipamentos/{maq}/{model}/Problemas/{self.edit.value}/'
+                    response = requests.get(f"{old_path}.json")
+                    data = response.json()
+                    requests.put(f"{new_path}.json", data=json.dumps(data))
+                    requests.delete(f"{old_path}.json")
+                    page.close(dlg)
+                    page.controls[0].content.controls[1].controls.pop()
+                    page.controls[0].content.controls[1].controls.pop()
+                    del page.controls[-1]
+                    selected_maq(page, maq, model)
+
+
+                self.edit = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+
+                dlg = ft.AlertDialog(
+                    actions=[
+                        ft.Column(
+                            [
+                                self.edit,
+                                ft.FilledButton(text="Salvar", on_click=lambda e: save())
+                            ],
+                            spacing=8
+                        ),
+                    ],
+                    actions_padding=10,
+                )
+                page.open(dlg)
 
             page.controls[0].content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{comp}', size=22), disabled=True))
             page.controls[0].content.controls[0].on_click = lambda e: back()
@@ -777,6 +848,8 @@ class HomeScreen(ft.Container):
                     self.match = True
                     cont.margin=ft.Margin(5,15,5,5)
                     cont.content.controls[0].rotate = ft.Rotate(angle=3.14159 / 2)
+                    cont.content.controls[4].items[0].on_click=lambda e, comp=comp: edit_comp(comp)
+                    cont.content.controls[4].items[1].on_click=lambda e, comp=comp: delete_comp(comp)
                     cont.on_click = lambda e: back()
                     page.add(cont)
             page.update()
@@ -845,10 +918,18 @@ class HomeScreen(ft.Container):
                                                     ft.Text(f'Solução', size=20),
                                                     ft.Container(
                                                         ft.Column(
-                                                            [
+                                                            controls= [
                                                                 ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'),
                                                                 ft.Divider(),
-                                                                ft.Row(controls=[ft.IconButton('open_in_new'), ft.IconButton('edit')])
+                                                                ft.Row([ft.IconButton('open_in_new'), ft.IconButton('edit')])
+                                                            ] if solucao != 'Adicionar Soluções' else [
+                                                                ft.TextButton(
+                                                                    content=ft.Row(
+                                                                        [ft.Icon('add'),ft.Text(f'{solucao}', size=18, text_align='center')]
+                                                                    )
+                                                                ),
+                                                                ft.Divider(),
+                                                                ft.Row([ft.IconButton('open_in_new', disabled=True), ft.IconButton('edit', disabled=True)])
                                                             ],
                                                             spacing=0
                                                         ),
@@ -864,7 +945,8 @@ class HomeScreen(ft.Container):
                                             )
                                         ],
                                         alignment=ft.MainAxisAlignment.CENTER,
-                                        expand=True  # Permite que a Row se expanda
+                                        expand=True,  # Permite que a Row se expanda,
+                                        vertical_alignment='start'
                                     )
                                 ),
                                 
@@ -877,7 +959,7 @@ class HomeScreen(ft.Container):
                                                 on_click=lambda e, problem=problem: delete(problem)
                                             ),
                                             ft.Icon('check_circle')
-                                        ] if solucao != 'Solução não encontrada' else [
+                                        ] if solucao != 'Adicionar Soluções' else [
                                             ft.IconButton(
                                                 icon=ft.icons.DELETE, 
                                                 on_click=lambda e, problem=problem: delete(problem)
@@ -996,32 +1078,146 @@ def main(page: ft.Page):
         height=50
     )
 
+    search_list = ft.ListView(spacing=15)
+
     def open_drawer():
         end_drawer = ft.NavigationDrawer(
             position=ft.NavigationDrawerPosition.END,
+            selected_index=-1,
+            on_change=lambda e: on_selected(e, end_drawer),
             controls=[
-                ft.NavigationDrawerDestination(icon=ft.icons.ADD_TO_HOME_SCREEN_SHARP, label="Item 1"),
-                ft.NavigationDrawerDestination(icon=ft.Icon(ft.icons.ADD_COMMENT), label="Item 2"),
+                ft.Container(height=12),
+                ft.Text('Menu', text_align='center'),
+                ft.Divider(thickness=2),
+                ft.NavigationDrawerDestination(
+                    icon_content=ft.Icon(ft.icons.SETTINGS),
+                    label="Configurações",
+                ),
+                ft.Container(height=12),
+                ft.NavigationDrawerDestination(
+                    icon_content=ft.Icon(ft.icons.DOWNLOAD),
+                    label="Downloads",
+                ),
+                ft.Container(height=12),
+                ft.NavigationDrawerDestination(
+                    icon_content=ft.Icon(ft.icons.DOOR_BACK_DOOR),
+                    label="Sair",
+                ),
             ],
         )
         page.open(end_drawer)
 
     def close_search(e=None):
-        # Remove o campo de busca e restaura o título original
         page.appbar.title = None
         page.update()
     
     def search_btn():
-        page.appbar.title = ft.TextField(
+        search=ft.TextField(
             autofocus=True,
             on_blur=lambda e: close_search(),
             height=35,
             width=500,
+            on_submit=lambda e: searching(search.value),
             content_padding=ft.padding.symmetric(vertical=5, horizontal=10)
-            # cursor_height=15
         )
+        page.appbar.title = search
         page.update()
-    
+
+    def search_in_dict(data, word, path=None, results=None):
+        """
+        Procura uma palavra em um dicionário aninhado e retorna as localizações onde ela aparece,
+        considerando tanto chaves quanto valores que contenham o fragmento da palavra.
+
+        :param data: Dicionário a ser pesquisado.
+        :param word: Palavra ou fragmento a ser procurado.
+        :param path: Caminho atual (usado para acompanhar a posição no dicionário).
+        :param results: Lista de resultados encontrados.
+        :return: Lista de caminhos onde a palavra foi encontrada.
+        """
+        if path is None:
+            path = []
+        if results is None:
+            results = []
+
+        # Tornar a palavra buscada minúscula para busca case-insensitive
+        word = word.lower()
+
+        # Se for um dicionário, verificar chaves e valores
+        if isinstance(data, dict):
+            for key, value in data.items():
+                # Comparar chave parcialmente
+                if word in str(key).lower():
+                    results.append(" -> ".join(path + [key]))
+                # Recursão para o valor
+                search_in_dict(value, word, path + [key], results)
+        
+        # Se for uma lista, iterar por índices
+        elif isinstance(data, list):
+            for index, value in enumerate(data):
+                search_in_dict(value, word, path + [f"[{index}]"], results)
+        
+        # Se for um valor final, comparar parcialmente
+        else:
+            if word in str(data).lower():
+                results.append(" -> ".join(path))
+
+        return results
+
+    def searching(word):
+        link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+        requisicao = requests.get(f'{link}/Equipamentos/.json')
+        dic_requisicao = requisicao.json()
+
+        results = search_in_dict(dic_requisicao, word)
+        if results:
+            search_list.controls.clear()
+            page.clean()
+            page.add(
+                ft.Container(
+                    margin=ft.Margin(20, 0, 60, 0),
+                    content=ft.Row(
+                        [
+                            ft.IconButton(ft.icons.ARROW_BACK_ROUNDED),
+                            ft.TextButton(content=ft.Text("Pesquisa", size=22)),
+                            ft.Container() 
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    )
+                ),
+                ft.Divider(),
+                ft.Container(content=search_list, margin=ft.Margin(20,5,20,0), expand=True, alignment=ft.alignment.center)
+            )
+            print(f"A palavra '{word}' foi encontrada nos seguintes caminhos:")
+            for result in results:
+                print(result)
+                search_list.controls.append(
+                    ft.Container(
+                        ft.Row(
+                            [
+                                ft.Icon(ft.icons.ARROW_RIGHT),
+                                ft.Text(f'{result}', size=18),
+                                ft.Container()
+                            ],
+                            alignment=ft.MainAxisAlignment.START,
+                            height=40
+                        ),
+                        bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                        border_radius=16
+                    )
+                )
+            page.update()
+                
+        else:
+            print(f"A palavra '{word}' não foi encontrada no dicionário.")
+
+    def on_selected(e, menu):
+        if e.control.selected_index == 0:
+            print("Configurações clicado!")
+        elif e.control.selected_index == 1:
+            print("Downloads clicado!")
+        elif e.control.selected_index == 2:
+            page.close(menu)
+            LoginScreen(page)
 
     page.bgcolor = ft.colors.ON_PRIMARY
 
