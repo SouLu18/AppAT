@@ -288,11 +288,11 @@ class HomeScreen(ft.Container):
                         icon_content=ft.Icon(ft.icons.STAR),
                         label="Favoritos",
                     ),
-                    ft.Container(height=12),
-                    ft.NavigationDrawerDestination(
-                        icon_content=ft.Icon(ft.icons.TEXT_SNIPPET),
-                        label="Relatório",
-                    ),
+                    # ft.Container(height=12),
+                    # ft.NavigationDrawerDestination(
+                    #     icon_content=ft.Icon(ft.icons.TEXT_SNIPPET),
+                    #     label="Relatório",
+                    # ),
                     ft.Container(height=12),
                     ft.NavigationDrawerDestination(
                         icon_content=ft.Icon(ft.icons.DOOR_BACK_DOOR),
@@ -309,9 +309,9 @@ class HomeScreen(ft.Container):
                 print("Downloads clicado!")
             elif e.control.selected_index == 2:
                 print("Favoritos clicado!")
+            # elif e.control.selected_index == 3:
+            #     print("Relatório clicado!")
             elif e.control.selected_index == 3:
-                print("Relatório clicado!")
-            elif e.control.selected_index == 4:
                 page.close(menu)
                 LoginScreen(page)
 
@@ -972,18 +972,17 @@ class Arotec(ft.Container):
                     descricao.value = f"{descricao.value}_{counter}"
                     counter += 1
                         
-                if descricao.value =='':
+                if not descricao.value.strip():
                     descricao.error_text='Adicione uma descrição'
                     descricao.focus()
-                elif detail.value =='':
-                    descricao.error_text=None
-                    detail.error_text='Adicione os detalhes do erro'
+                elif not detail.value.strip():
                     detail.focus()
+                elif not resolution.value.strip():
+                    resolution.value='Adicionar Soluções'
                 else:
-                    if resolution.value=='':
-                        resolution.value='Adicionar Soluções'
+                    dlg.content.clean()
                     dlg.actions.clear()
-                    dlg.actions.append(
+                    dlg.content.controls.append(
                         ft.Container(
                             ft.Column([ft.ProgressRing(), ft.Text('Registrando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             alignment=ft.alignment.center
@@ -995,22 +994,21 @@ class Arotec(ft.Container):
                     page.close(dlg)
                     self.selected_comp(page, maq, model, comp)
             descricao = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
-            detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save())
-            resolution = ft.TextField(label='Solução', border_radius=16, on_submit=lambda e: save())
+            detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save(), multiline=True, height=50,)
+            resolution = ft.TextField(label='Solução', border_radius=16, on_submit=lambda e: save(), multiline=True, height=50)
 
             dlg = ft.AlertDialog(
-                actions=[
-                    ft.Column(
-                        [
-                            descricao,
-                            detail,
-                            resolution,
-                            ft.FilledButton(text="Salvar", on_click=lambda e: save())
-                        ],
-                        spacing=8
-                    ),
-                ],
-                actions_padding=10,
+                content=ft.Column(
+                    [
+                        descricao,
+                        detail,
+                        resolution,
+                    ],
+                    spacing=8,
+                    tight=True,
+                ),
+                actions=[ft.FilledButton(text="Salvar", on_click=lambda e: save())],
+                on_dismiss=lambda e: save()
             )
             page.open(dlg)
 
@@ -1083,15 +1081,13 @@ class Arotec(ft.Container):
 
         def open_view(item):
             dlg = ft.AlertDialog(
-                actions=[
-                    ft.Column(
-                        [
-                            ft.Text(f'{item}', size=20, max_lines=20),
-                        ],
-                        spacing=8,
-                        scroll=True
-                    ),
-                ],
+                content=ft.Column(
+                    [
+                        ft.Text(f'{item}', size=20, max_lines=20),
+                    ],
+                    spacing=8,
+                    scroll=True,
+                ),
                 actions_padding=10,
             )
             page.open(dlg)
