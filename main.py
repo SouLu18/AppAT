@@ -997,20 +997,19 @@ class Arotec(ft.Container):
             detail = ft.TextField(label='Detalhes do erro', border_radius=16, on_submit=lambda e: save(), multiline=True, height=50,)
             resolution = ft.TextField(label='Solução', border_radius=16, on_submit=lambda e: save(), multiline=True, height=50)
 
-            dlg = ft.AlertDialog(
+            dlg = ft.Container(
                 content=ft.Column(
                     [
                         descricao,
                         detail,
                         resolution,
+                        ft.FilledButton(text="Salvar", on_click=lambda e: save())
                     ],
                     spacing=8,
                     tight=True,
                 ),
-                actions=[ft.FilledButton(text="Salvar", on_click=lambda e: save())],
-                on_dismiss=lambda e: save()
             )
-            page.open(dlg)
+            page.add(dlg)
 
         def delete(item):
             emoji = '\u26A0'
@@ -1063,7 +1062,7 @@ class Arotec(ft.Container):
                     self.selected_comp(page, maq, model, comp)
 
 
-            self.edit = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+            self.edit = ft.TextField(label='Renomear', border_radius=16, on_submit=lambda e: save(), autofocus=True)
 
             dlg = ft.AlertDialog(
                 actions=[
@@ -1102,10 +1101,10 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.spacing = 0
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.bgcolor = ft.colors.ON_PRIMARY
-    page.window.maximized = True
+    page.bgcolor = "rgba(224, 226, 229, 0.91)"
+    # page.window.maximized = True
 
-    Loading(page)
+    Arotec(page, 'admin')
 
     
 
