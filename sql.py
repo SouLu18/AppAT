@@ -1,31 +1,20 @@
 import sqlite3
 
-# Cria (ou conecta) ao banco de dados
-conn = sqlite3.connect("troubleshooting.db")
+# Conectar ao banco de dados
+conn = sqlite3.connect("assets/equipment.db")  # Substitua pelo nome do seu banco
 cursor = conn.cursor()
 
-# Lista das máquinas
-machines = [
-    "COR300",
-    "PRE30",
-    "AROPOL_2_V",
-    "COR250",
-    "AROPOL_VV300A"
-]
+# Apagar todos os dados da tabela
+cursor.execute("DELETE FROM AROTEC")
 
-# Criação das tabelas
-for machine in machines:
-    # Ajuste o nome para evitar problemas com caracteres especiais
-    table_name = machine.replace(" ", "_")
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {table_name} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            problema TEXT NOT NULL,
-            solucao TEXT NOT NULL
-        )
-    """)
-    print(f"Tabela '{table_name}' criada com sucesso!")
+# Resetar o autoincremento (opcional, se a tabela tiver uma coluna ID autoincremento)
+cursor.execute("DELETE FROM sqlite_sequence WHERE name = 'AROTEC'")
 
-# Salva as alterações e fecha a conexão
+# Confirmar a alteração
 conn.commit()
+
+# Fechar a conexão
+cursor.close()
 conn.close()
+
+print("Todos os dados foram apagados, mas as colunas permanecem.")

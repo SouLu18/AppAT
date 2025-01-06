@@ -436,26 +436,22 @@ class Arotec(ft.Container):
             ),
         )
 
-    @staticmethod
-    async def download(page, maq=None, model=None, comp=None):
+    def download(self, page, maq=None, model=None, comp=None):
         status = ft.AlertDialog(
-            modal=True,
-            content=ft.Column(
-                [ft.ProgressRing(), ft.Text('Baixando')], 
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                tight=True
-            ),
             actions=[
-                ft.TextButton("continuar em segundo plano", on_click=lambda e: page.close(status)),
+                ft.Container(
+                    ft.Column([ft.ProgressRing(), ft.Text('Baixando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center
+                )
             ],
-            action_button_padding=ft.Padding(0,0,0,20)
+            actions_padding=ft.Padding(0,5,0,0)
         )
         page.open(status)
         connection = sqlite3.connect("assets/equipment.db")
         cursor = connection.cursor()
         link = 'https://appat-5805e-default-rtdb.firebaseio.com'
         if not comp:
-            requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Componentes.json')
+            requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
             dict_requisicao = requisicao.json()
             for componente, subdicionarios in dict_requisicao.items():
                 for problema, detalhes in subdicionarios.items():
@@ -477,43 +473,68 @@ class Arotec(ft.Container):
                 ''', (f'{maq}', f'{model}', f'{comp}', f'{problema}', f'{detalhes['descrição']}', f'{detalhes["solução"]}'))
         connection.commit()
         connection.close()
-        page.close(status)
+        if comp:
+            self.selected_comp(page, maq, model, comp)
+            page.close(status)
+        elif model:
+            self.equip_list(page, maq)
+            page.close(status)
 
-    def verificacao(self, maq, model, comp):
-        print(maq, model, comp)
+
+    def verificacao(self, maq, model=None):
         connection = sqlite3.connect("assets/equipment.db")
         cursor = connection.cursor()
-        count = None
-        query = '''SELECT COUNT(*) FROM AROTEC WHERE maquina = ? AND modelo = ?'''
-        params = [maq, model]
-        if comp is not None:
-            query += ' AND componente = ?'
-            params.append(comp)
-        cursor.execute(query, tuple(params))
-        count = cursor.fetchone()[0]
-        connection.close()
+        if model != None:
+            query = """
+                SELECT componente, COUNT(*) as quantidade
+                FROM AROTEC
+                GROUP BY componente
+            """      
+        elif maq and model == None:
+            query = '''
+                SELECT modelo, componente, COUNT(problema)
+                FROM AROTEC
+                GROUP BY modelo, componente
+            '''
+        cursor.execute(query)
+        db_contagem_comp = {}
+        if model != None:
+            db_contagem_comp = {linha[0]: linha[1] for linha in cursor.fetchall()}
+        elif maq and model == None:
+            for row in cursor.fetchall():
+                modelo, componente, count = row
+                if modelo not in db_contagem_comp:
+                    db_contagem_comp[modelo] = 0
+                db_contagem_comp[modelo] += count
+        cursor.close()
+        connection.close
 
-        count_2 = 0
-        results = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
-        data = results.json()
-        for key, components  in data.items():
-            for component, details in components.items():
-                if component == 'vazio':
-                    continue
-                count_2 += 1
-        print(count, count_2)
-        return False
-        #     count_2 = sum(len(c) for c in componentes.values())
-        # else:
-        #     if comp in componentes:
-        #         count_2 = len(componentes[comp])
+        contagem_comp = {}
+        if model != None:
+            results = requests.get(f'{self.link}/Equipamentos/{maq}/{model}.json')
+            data = results.json()
+            total_itens = 0
+            for componente, detalhes in data.items():
+                contagem_comp = {chave: len(valor) for chave, valor in detalhes.items()}
+        elif maq and model == None:
+            results = requests.get(f'{self.link}/Equipamentos/{maq}.json')                                   
+            data = results.json()
+            for key, valor  in data.items():
+                componentes = valor.get('Componentes', {})
+                total_itens = 0
+                for componente, detalhes in componentes.items():
+                    if detalhes == {'vazio': 'vazio'}:
+                        continue
+                    total_itens += len(detalhes)
+                contagem_comp[key] = total_itens
+        print(contagem_comp, '\n\n', db_contagem_comp)
+            
+        itens_iguais = []
+        for key, valor in contagem_comp.items():
+            if key in db_contagem_comp and valor == db_contagem_comp[key]:
+                itens_iguais.append(key)
         
-        # if count == count_2:
-        #     return True
-        # else:
-        #     return False
-
-
+        return itens_iguais
 
     def first_page(self, page):
         while len(self.cont_way.content.controls[1].controls) > 2:
@@ -552,19 +573,19 @@ class Arotec(ft.Container):
         dict_mach = dict_requisicao[f'{maquinas}']
         self.list_opt.controls.clear()
         self.list_opt.divider_thickness = 1
+        self.list_downloaded = self.verificacao(maquinas)
 
         for id in dict_mach:
-            is_downloaded = self.verificacao(maquinas, id, None)
             mach_row = ft.Row(
                 [
                     ft.Icon(ft.icons.ARROW_RIGHT),
                     ft.TextButton(content=ft.Text(f'{id}'), on_click=lambda e, id=id: self.selected_maq(page, maquinas, id)),
                     ft.Container(expand=True),
                     ft.IconButton(
-                        icon=ft.icons.DOWNLOAD if not is_downloaded  else ft.icons.DOWNLOAD_DONE_OUTLINED,
-                        on_click=lambda e, maquinas=maquinas, id=id: asyncio.run(self.download(page, maquinas, id)),
-                        tooltip='Download' if not is_downloaded else 'Download realizado',
-                        disabled= is_downloaded
+                        icon=ft.icons.DOWNLOAD if id not in self.list_downloaded else ft.icons.DOWNLOAD_DONE_OUTLINED,
+                        on_click=lambda e, maquinas=maquinas, id=id: self.download(page, maquinas, id),
+                        tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
+                        disabled= True if id in self.list_downloaded else False
                     ),
                     ft.PopupMenuButton(items=[
                         ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click=lambda e, id=id: edit(id)),
@@ -624,8 +645,8 @@ class Arotec(ft.Container):
                     data = response.json()
                     requests.put(f"{new_path}.json", data=json.dumps(data))
                     requests.delete(f"{old_path}.json")
-                    page.close(dlg)
                     self.equip_list(page, maquinas)
+                    page.close(dlg)
 
 
             self.edit = ft.TextField(label='Máquina', border_radius=16, on_submit=lambda e: save(), autofocus=True)
@@ -661,10 +682,20 @@ class Arotec(ft.Container):
             page.open(alerta)
             def yes_no(answer):
                 if answer == 'yes':
-                    page.close(alerta)
+                    alerta.title = None
+                    alerta.actions = None
+                    alerta.content.controls = [
+                        ft.Column(
+                            [ft.ProgressRing(), ft.Text('Apagando')], 
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            tight=True
+                        ),
+                    ]
+                    page.update()
                     link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
                     requests.delete(f'{link}/Equipamentos/{maquinas}/{id}.json')
                     self.equip_list(page, maquinas)
+                    page.close(alerta)
                 else:
                     page.close(alerta)
 
@@ -689,8 +720,8 @@ class Arotec(ft.Container):
                     page.update()
                     dados = {"status": "vazio"}
                     requests.put(f'{self.link}/Equipamentos/{mach}/{self.name.value}/Componentes.json', data=json.dumps(dados))
-                    page.close(dlg)
                     self.equip_list(page, mach)
+                    page.close(dlg)
                 
 
             self.name = ft.TextField(label='Nome da Máquina', border_radius=16, on_submit=lambda e: save(), autofocus=True)
@@ -714,6 +745,7 @@ class Arotec(ft.Container):
         dict_problem = requisicao.json()
         self.list_opt.divider_thickness = 0
         self.list_opt.controls.clear()
+        self.list_downloaded = self.verificacao(maq, model)
 
         for id in dict_problem:
             if id == 'status':
@@ -725,7 +757,12 @@ class Arotec(ft.Container):
                             ft.Icon(ft.icons.ARROW_RIGHT),
                             ft.Text(f'{id}', size=20),
                             ft.Container(expand=True),
-                            ft.IconButton(ft.icons.DOWNLOAD, on_click=lambda e, maq=maq, model=model, id=id: print(self.verificacao(maq, model, id))),
+                            ft.IconButton(
+                                icon=ft.icons.DOWNLOAD if id not in self.list_downloaded else ft.icons.DOWNLOAD_DONE_OUTLINED,
+                                on_click=lambda e, maquinas=maq, id=id: self.download(page, maquinas, id),
+                                tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
+                                disabled= True if id in self.list_downloaded else False
+                            ),
                             ft.PopupMenuButton(items=[
                                 ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click= lambda e, id=id: edit(id)),
                                 ft.PopupMenuItem('Deletar', ft.icons.DELETE, on_click=lambda e, id=id: delete(id)),
@@ -1362,9 +1399,6 @@ class Arotec(ft.Container):
                 actions_padding=ft.Padding(10, 10, 10, 10),
             )
             page.open(edit_alert)
-
-
-
 
 
 def main(page: ft.Page):
