@@ -1,9 +1,13 @@
 import flet as ft
+import os
 import asyncio
 import time
 import requests
 import json
-import sqlite3
+import subprocess
+import zipfile
+import sys
+# import sqlite3
 
 class Loading(ft.Container):
     def __init__(self, page: ft.Page):
@@ -75,7 +79,7 @@ class LoginScreen(ft.Container):
         super().__init__()
         page.vertical_alignment = ft.MainAxisAlignment.CENTER
         page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-        page.bgcolor = ft.colors.ON_PRIMARY_CONTAINER
+        page.bgcolor = ft.Colors.ON_PRIMARY_CONTAINER
         page.bottom_appbar = ft.BottomAppBar(
             ft.Row(
                 [
@@ -107,24 +111,35 @@ class LoginScreen(ft.Container):
             actions=[ft.TextButton('OK', on_click=lambda e: page.close(alerta), autofocus=True)],
         )
         
+        CONFIG_FILE = "config.json"
+        def save_login_state(stay_logged_in, username=None):
+            data = {
+                "stay_logged_in": stay_logged_in,
+                "username": username if stay_logged_in else None
+            }
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(data, f)
+
         page.add(
             ft.Container(
                 ft.Container(
                     ft.Column(
                         [
                             ft.Container(content=ft.Text('Login', text_align=ft.TextAlign.END, size=32, color='#35588e'), margin=ft.Margin(0,10,0,0)),
-                            ft.Container(content=ft.Divider()),
                             ft.Column([ft.Text('Usuário', color='#35588e', size=16), self.user]),
                             ft.Column([ft.Text('Senha', color='#35588e', size=16), password]),
-                            ft.Checkbox('Continuar logado'),
-                            ft.Container(content=ft.ElevatedButton('Logar'), margin=ft.Margin(0,0,0,10))
+                            ft.Checkbox(
+                                'Continuar logado', 
+                                on_change = lambda e: save_login_state(e.control.value, self.user.value),
+                                ),
+                            ft.Container(content=ft.ElevatedButton('Logar', on_click=lambda e: login()), margin=ft.Margin(0,0,0,10))
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     margin=ft.Margin(20,0,20,0),
                 ),
                 width=400,
-                bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                bgcolor=ft.Colors.ON_INVERSE_SURFACE,
                 border_radius=16
             )
         )
@@ -143,20 +158,144 @@ class LoginScreen(ft.Container):
             else:
                 page.open(alerta)
 
+class Updating(ft.Container):
+    def __init__(self, page: ft.Page, ver):
+        super().__init__(page)
+
+        update = ft.AlertDialog(
+                title=ft.Text("Atualização de software"),
+                content=ft.Text(f"Uma nova versão está disponível v{ver}.\nGostaria de atualizar?"),
+                actions=[
+                    ft.TextButton("Não", on_click=lambda e: page.close(update)),
+                    ft.TextButton("Sim", on_click=lambda e: atualizar_app()),
+                ],
+                actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            )
+        page.open(update)
+        
+        def atualizar_app():
+
+            update.content.value = 'O aplicativo precisará reiniciar após o download.\nContinuar o processo?'
+            update.actions[1].on_click = lambda e: continuar()
+            page.update()
+
+            def continuar():
+                update.content=ft.Column(
+                    [
+                        ft.ProgressRing(),
+                        ft.Text("Baixando atualização"),
+                        ft.ProgressBar(visible=False)
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    tight=True
+                )
+                update.actions=None
+                page.update()
+
+                URL_DOWNLOAD = "https://github.com/SouLu18/AppAT/releases/latest/download/windows.zip"
+                ZIP_PATH = "windows.zip"
+                EXTRACT_FOLDER = "update" 
+
+                resposta = requests.get(URL_DOWNLOAD, stream=True)
+
+                if resposta.status_code == 200:
+                    tamanho_total = int(resposta.headers.get('content-length', 0))
+                    bytes_baixados = 0
+                    with open(ZIP_PATH, "wb") as f:
+                        for chunk in resposta.iter_content(chunk_size=1024):
+                            f.write(chunk)
+                            bytes_baixados += len(chunk)
+                            progresso = bytes_baixados / tamanho_total if tamanho_total else 0
+                            update.content.controls[2].visible = True
+                            update.content.controls[2].value = progresso
+                            update.content.controls[1].value = f"Baixando... {int(progresso * 100)}%"
+                            page.update()
+                    update.content.controls[1].value = f"Download finalizado!"
+                    update.content.controls[2].visible = False
+                    page.update()
+                else:
+                    update.content.controls[1].value = f"Erro ao baixar o arquivo: {resposta.status_code}"
+                    page.update()
+                
+                os.makedirs(EXTRACT_FOLDER, exist_ok=True)
+                update.content.controls[1].value = f"Extraindo arquivos"
+                page.update()
+                with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
+                    zip_ref.extractall(EXTRACT_FOLDER)
+
+                os.remove(ZIP_PATH)
+
+                update.content.controls[1].value = f"Movendo arquivos.\nReinicie o aplicativo após a finalização."
+                page.update()
+                time.sleep(2)
+                
+                extract_path = os.path.abspath(EXTRACT_FOLDER)
+                temp_bat = os.path.join(os.environ['TEMP'], 'remover.bat')
+                current_folder = os.path.dirname(os.path.dirname(sys.executable))
+                exe_name = 'AppAT.exe'
+
+                bat_content = f'''
+                    @echo off
+                    timeout /t 5 /nobreak > nul
+                    echo Substituindo a pasta antiga...
+
+                    :: Finaliza qualquer instância do AppAT.exe
+                    taskkill /f /im "AppAT.exe" > nul 2>&1
+
+                    :: Aguarda até que o processo desapareça completamente
+                    :CHECK
+                    tasklist | findstr /i "AppAT.exe" > nul
+                    if not errorlevel 1 (
+                        echo Aguardando fechamento do AppAT.exe...
+                        timeout /t 2 /nobreak > nul
+                        goto CHECK
+                    )
+
+                    :: Exclui completamente a pasta "windows"
+                    rmdir /s /q "{current_folder}\\windows"
+
+                    :: Copia a nova pasta "windows" para dentro de current_folder
+                    xcopy /e /i /h /y "{extract_path}" "{current_folder}"
+
+                    :: Remove a pasta de extração após a cópia
+                    rmdir /s /q "{extract_path}"l
+                    
+                    exit
+                '''
+
+                with open(temp_bat, 'w') as bat_file:
+                    bat_file.write(bat_content)
+                
+                os.system(f'start "" "{temp_bat}"')
+
 class HomeScreen(ft.Container):
     def __init__(self, page: ft.Page, user):
         super().__init__(page)
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.START
-        page.bgcolor = ft.colors.ON_PRIMARY
+        page.bgcolor = ft.Colors.ON_PRIMARY
         self.user = user
         self.arotec_screen = Arotec(page, self.user)
+
+        ver_local = '1.0.2'
+        ver = requests.get('https://appat-5805e-default-rtdb.firebaseio.com/versão.json')
+
+        page.bottom_appbar = ft.BottomAppBar(
+            ft.Row(
+                [
+                    ft.Text(f'v{ver_local}'),
+                    ft.Text('© 2025 Arotec', size=16),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            height=50
+        )
 
         if page.controls:
             page.clean()
 
         page.appbar = ft.AppBar(
-            bgcolor=ft.colors.ON_INVERSE_SURFACE,
+            bgcolor=ft.Colors.ON_INVERSE_SURFACE,
             leading=ft.Image('assets/logo.png'),
             leading_width=120,
             center_title=True,
@@ -164,8 +303,8 @@ class HomeScreen(ft.Container):
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.IconButton(ft.icons.SEARCH_SHARP, on_click=lambda e: search_btn(), on_blur=lambda e: close_search()),
-                            ft.IconButton(ft.icons.MENU, on_click=lambda e: open_drawer()),
+                            ft.IconButton(ft.Icons.SEARCH_SHARP, on_click=lambda e: search_btn(), on_blur=lambda e: close_search(), disabled=True),
+                            ft.IconButton(ft.Icons.MENU, on_click=lambda e: open_drawer(), tooltip='menu'),
                         ]
                     ),
                     margin=ft.Margin(0,0,10,0)
@@ -173,12 +312,27 @@ class HomeScreen(ft.Container):
             ],
         )
 
+        if ver.status_code == 200:
+            if ver_local != ver.json():
+                bottom = page.bottom_appbar.content
+                bottom.controls[0] = ft.OutlinedButton(
+                    content= ft.Row(
+                        [
+                            ft.Text(f'v{ver_local}', size=16),
+                            ft.Icon(ft.Icons.DOWNLOADING_ROUNDED, color='blue', size=20)
+                        ],
+                        spacing=2
+                    ),
+                    tooltip='atualização disponível',
+                    on_click=lambda e: Updating(page, ver.json())
+                )
+
         page.add(
             ft.Container(
                     margin=ft.Margin(20, 0, 60, 0),
                     content=ft.Row(
                         [
-                            ft.IconButton(ft.icons.ARROW_BACK_ROUNDED),
+                            ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED),
                             ft.TextButton(content=ft.Text("Linhas", size=22)),
                             ft.Container() 
                         ],
@@ -191,48 +345,48 @@ class HomeScreen(ft.Container):
                     [
                         ft.Container(
                             ft.Image("assets/arotec.png"), width=140, height=160, 
-                            bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
+                            bgcolor=ft.Colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
                             ink=True, on_click=lambda e: self.arotec_screen.first_page(page), padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
-                                        color=ft.colors.BLUE_GREY_100,
+                                        color=ft.Colors.BLUE_GREY_100,
                                         offset=ft.Offset(0, 0),
                                         blur_style=ft.ShadowBlurStyle.OUTER,
                                     ),
                             ),
                         ft.Container(
                             ft.Image("assets/struers.png"), width=140, height=160, 
-                            bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
+                            bgcolor=ft.Colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
+                            ink=True, padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
-                                        color=ft.colors.BLUE_GREY_100,
+                                        color=ft.Colors.BLUE_GREY_100,
                                         offset=ft.Offset(0, 0),
                                         blur_style=ft.ShadowBlurStyle.OUTER,
                                     ),
                             ),
                         ft.Container(
                             ft.Image("assets/foerster.png"), width=140, height=160, 
-                            bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
+                            bgcolor=ft.Colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
+                            ink=True, padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
-                                        color=ft.colors.BLUE_GREY_100,
+                                        color=ft.Colors.BLUE_GREY_100,
                                         offset=ft.Offset(0, 0),
                                         blur_style=ft.ShadowBlurStyle.OUTER,
                                     )
                             ),
                         ft.Container(
                             ft.Image("assets/evident.png"), width=140, height=160, 
-                            bgcolor=ft.colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
-                            ink=True, on_click=lambda e: print('teste'), padding=ft.padding.all(10),
+                            bgcolor=ft.Colors.ON_PRIMARY, border_radius= ft.border_radius.all(16),
+                            ink=True, padding=ft.padding.all(10),
                             shadow=ft.BoxShadow(
                                         spread_radius=1,
                                         blur_radius=16,
-                                        color=ft.colors.BLUE_GREY_100,
+                                        color=ft.Colors.BLUE_GREY_100,
                                         offset=ft.Offset(0, 0),
                                         blur_style=ft.ShadowBlurStyle.OUTER,
                                     )
@@ -246,7 +400,7 @@ class HomeScreen(ft.Container):
                 height=200,
                 expand=True,
                 alignment=ft.alignment.center
-            )
+            ),
         )
 
         page.update()
@@ -270,7 +424,7 @@ class HomeScreen(ft.Container):
                         margin=ft.Margin(20, 0, 60, 0),
                         content=ft.Row(
                             [
-                                ft.IconButton(ft.icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, user)),
+                                ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, user)),
                                 ft.TextButton(content=ft.Text("Pesquisa", size=22)),
                                 ft.Container() 
                             ],
@@ -285,7 +439,7 @@ class HomeScreen(ft.Container):
                         ft.Container(
                             ft.Row(
                                 [
-                                    ft.Icon(ft.icons.ARROW_RIGHT),
+                                    ft.Icon(ft.Icons.ARROW_RIGHT),
                                     ft.Text(f'{result}', size=18),
                                     ft.Container()
                                 ],
@@ -293,7 +447,7 @@ class HomeScreen(ft.Container):
                                 height=40
                             ),
                             on_click=lambda e, result=result: go_to(result),
-                            bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                            bgcolor=ft.Colors.ON_INVERSE_SURFACE,
                             border_radius=16
                         )
                     )
@@ -334,7 +488,7 @@ class HomeScreen(ft.Container):
             comp = sections[3] if len(sections) >=4 else None
 
             if comp:
-                screen.selected_comp(page, maq, model, comp)
+                pass
             elif model:
                 screen.selected_maq(page, maq, model)
             else:
@@ -364,27 +518,27 @@ class HomeScreen(ft.Container):
                     ft.Text('Menu', text_align='center'),
                     ft.Divider(thickness=2),
                     ft.NavigationDrawerDestination(
-                        icon_content=ft.Icon(ft.icons.SETTINGS),
+                        icon=ft.Icon(ft.Icons.SETTINGS),
                         label="Configurações",
                     ),
                     ft.Container(height=12),
                     ft.NavigationDrawerDestination(
-                        icon_content=ft.Icon(ft.icons.DOWNLOAD),
+                        icon=ft.Icon(ft.Icons.DOWNLOAD),
                         label="Downloads",
                     ),
                     ft.Container(height=12),
                     ft.NavigationDrawerDestination(
-                        icon_content=ft.Icon(ft.icons.STAR),
+                        icon=ft.Icon(ft.Icons.STAR),
                         label="Favoritos",
                     ),
                     # ft.Container(height=12),
                     # ft.NavigationDrawerDestination(
-                    #     icon_content=ft.Icon(ft.icons.TEXT_SNIPPET),
+                    #     icon=ft.Icon(ft.Icons.TEXT_SNIPPET),
                     #     label="Relatório",
                     # ),
                     ft.Container(height=12),
                     ft.NavigationDrawerDestination(
-                        icon_content=ft.Icon(ft.icons.DOOR_BACK_DOOR),
+                        icon=ft.Icon(ft.Icons.DOOR_BACK_DOOR),
                         label="Sair",
                     ),
                 ],
@@ -393,16 +547,26 @@ class HomeScreen(ft.Container):
 
         def on_selected(e, menu):
             if e.control.selected_index == 0:
-                print("Configurações clicado!")
+                pass
             elif e.control.selected_index == 1:
-                print("Downloads clicado!")
+                pass
             elif e.control.selected_index == 2:
-                print("Favoritos clicado!")
+                pass
             # elif e.control.selected_index == 3:
             #     print("Relatório clicado!")
             elif e.control.selected_index == 3:
                 page.close(menu)
-                LoginScreen(page)            
+                save_login_state(False, None)
+                LoginScreen(page)  
+
+        def save_login_state(stay_logged_in, username=None):
+            CONFIG_FILE = "config.json"
+            data = {
+                "stay_logged_in": stay_logged_in,
+                "username": username if stay_logged_in else None
+            }
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(data, f)          
 
 class Arotec(ft.Container):
     def __init__(self, page: ft.Page, user):
@@ -413,132 +577,138 @@ class Arotec(ft.Container):
             margin=ft.Margin(20, 0, 60, 0),
             content=ft.Row(
                 [
-                    ft.IconButton(ft.icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, self.user)),
+                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, self.user)),
                     ft.Row(
                         [
                             ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page, self.user)),
                             ft.TextButton(content=ft.Text("Máquinas", size=22), disabled=True, on_click=lambda e: self.first_page(page)),
                         ],
                     ),
-                    ft.Container()
+                    ft.ProgressRing(opacity=0, width=20, height=20, stroke_width=2),
                     ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN
             )
         )
-        self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+        self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/AROTEC'
         self.list_opt = ft.ListView(spacing=10, padding=0, divider_thickness=1, expand=True)
         self.button_add = ft.Container(
-            margin=ft.Margin(90,10,0,0),
+            margin=ft.Margin(130,10,150,0),
             content=ft.Row(
                 [
-                    ft.ElevatedButton(icon=ft.icons.ADD, text='Adicionar Máquina')
-                ]
+                    ft.ElevatedButton(icon=ft.Icons.ADD, content=ft.Text('Adicionar Máquina', text_align='center'), width=250)
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
             ),
         )
 
-    def download(self, page, maq=None, model=None, comp=None):
-        status = ft.AlertDialog(
-            actions=[
-                ft.Container(
-                    ft.Column([ft.ProgressRing(), ft.Text('Baixando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    alignment=ft.alignment.center
-                )
-            ],
-            actions_padding=ft.Padding(0,5,0,0)
-        )
-        page.open(status)
-        connection = sqlite3.connect("assets/equipment.db")
-        cursor = connection.cursor()
-        link = 'https://appat-5805e-default-rtdb.firebaseio.com'
-        if not comp:
-            requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
-            dict_requisicao = requisicao.json()
-            for componente, subdicionarios in dict_requisicao.items():
-                for problema, detalhes in subdicionarios.items():
-                    if problema == 'vazio':
-                        continue
-                    cursor.execute('''
-                    INSERT INTO AROTEC (maquina, modelo, componente, problema, detalhe, solução)
-                    VALUES (?,?,?,?,?,?)
-                    ''', (f'{maq}', f'{model}', f'{componente}', f'{problema}', f'{detalhes['descrição']}', f'{detalhes["solução"]}'))
-        else:
-            requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Componentes/{comp}.json')
-            dict_requisicao = requisicao.json()
-            for problema, detalhes in dict_requisicao.items():
-                if problema == 'vazio':
-                    continue
-                cursor.execute('''
-                INSERT INTO AROTEC (maquina, modelo, componente, problema, detalhe, solução)
-                VALUES (?,?,?,?,?,?)
-                ''', (f'{maq}', f'{model}', f'{comp}', f'{problema}', f'{detalhes['descrição']}', f'{detalhes["solução"]}'))
-        connection.commit()
-        connection.close()
-        if comp:
-            self.selected_comp(page, maq, model, comp)
-            page.close(status)
-        elif model:
-            self.equip_list(page, maq)
-            page.close(status)
+    # def download(self, page, maq=None, model=None, comp=None):
+    #     status = ft.AlertDialog(
+    #         actions=[
+    #             ft.Container(
+    #                 ft.Column([ft.ProgressRing(), ft.Text('Baixando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+    #                 alignment=ft.alignment.center
+    #             )
+    #         ],
+    #         actions_padding=ft.Padding(0,5,0,0)
+    #     )
+    #     page.open(status)
+    #     connection = sqlite3.connect("assets/equipment.db")
+    #     cursor = connection.cursor()
+    #     link = 'https://appat-5805e-default-rtdb.firebaseio.com'
+    #     if not comp:
+    #         requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
+    #         dict_requisicao = requisicao.json()
+    #         for componente, subdicionarios in dict_requisicao.items():
+    #             for problema, detalhes in subdicionarios.items():
+    #                 if problema == 'vazio':
+    #                     continue
+    #                 cursor.execute('''
+    #                 INSERT INTO AROTEC (maquina, modelo, componente, problema, detalhe, solução)
+    #                 VALUES (?,?,?,?,?,?)
+    #                 ''', (f'{maq}', f'{model}', f'{componente}', f'{problema}', f'{detalhes['descrição']}', f'{detalhes["solução"]}'))
+    #     else:
+    #         requisicao = requests.get(f'{link}/Equipamentos/{maq}/{model}/Componentes/{comp}.json')
+    #         dict_requisicao = requisicao.json()
+    #         for problema, detalhes in dict_requisicao.items():
+    #             if problema == 'vazio':
+    #                 continue
+    #             cursor.execute('''
+    #             INSERT INTO AROTEC (maquina, modelo, componente, problema, detalhe, solução)
+    #             VALUES (?,?,?,?,?,?)
+    #             ''', (f'{maq}', f'{model}', f'{comp}', f'{problema}', f'{detalhes['descrição']}', f'{detalhes["solução"]}'))
+    #     connection.commit()
+    #     connection.close()
+    #     if comp:
+    #         self.selected_comp(page, maq, model, comp)
+    #         page.close(status)
+    #     elif model:
+    #         self.equip_list(page, maq)
+    #         page.close(status)
 
 
-    def verificacao(self, maq, model=None):
-        connection = sqlite3.connect("assets/equipment.db")
-        cursor = connection.cursor()
-        if model != None:
-            query = """
-                SELECT componente, COUNT(*) as quantidade
-                FROM AROTEC
-                GROUP BY componente
-            """      
-        elif maq and model == None:
-            query = '''
-                SELECT modelo, componente, COUNT(problema)
-                FROM AROTEC
-                GROUP BY modelo, componente
-            '''
-        cursor.execute(query)
-        db_contagem_comp = {}
-        if model != None:
-            db_contagem_comp = {linha[0]: linha[1] for linha in cursor.fetchall()}
-        elif maq and model == None:
-            for row in cursor.fetchall():
-                modelo, componente, count = row
-                if modelo not in db_contagem_comp:
-                    db_contagem_comp[modelo] = 0
-                db_contagem_comp[modelo] += count
-        cursor.close()
-        connection.close
+    # def verificacao(self, maq, model=None):
+    #     connection = sqlite3.connect("assets/equipment.db")
+    #     cursor = connection.cursor()
+    #     if model != None:
+    #         query = """
+    #             SELECT componente, COUNT(*) as quantidade
+    #             FROM AROTEC
+    #             GROUP BY componente
+    #         """      
+    #     elif maq and model == None:
+    #         query = '''
+    #             SELECT modelo, componente, COUNT(problema)
+    #             FROM AROTEC
+    #             GROUP BY modelo, componente
+    #         '''
+    #     cursor.execute(query)
+    #     db_contagem_comp = {}
+    #     if model != None:
+    #         db_contagem_comp = {linha[0]: linha[1] for linha in cursor.fetchall()}
+    #     elif maq and model == None:
+    #         for row in cursor.fetchall():
+    #             modelo, componente, count = row
+    #             if modelo not in db_contagem_comp:
+    #                 db_contagem_comp[modelo] = 0
+    #             db_contagem_comp[modelo] += count
+    #     cursor.close()
+    #     connection.close
 
-        contagem_comp = {}
-        if model != None:
-            results = requests.get(f'{self.link}/Equipamentos/{maq}/{model}.json')
-            data = results.json()
-            total_itens = 0
-            for componente, detalhes in data.items():
-                contagem_comp = {chave: len(valor) for chave, valor in detalhes.items()}
-        elif maq and model == None:
-            results = requests.get(f'{self.link}/Equipamentos/{maq}.json')                                   
-            data = results.json()
-            for key, valor  in data.items():
-                componentes = valor.get('Componentes', {})
-                total_itens = 0
-                for componente, detalhes in componentes.items():
-                    if detalhes == {'vazio': 'vazio'}:
-                        continue
-                    total_itens += len(detalhes)
-                contagem_comp[key] = total_itens
-        print(contagem_comp, '\n\n', db_contagem_comp)
+    #     contagem_comp = {}
+    #     if model != None:
+    #         results = requests.get(f'{self.link}/Equipamentos/{maq}/{model}.json')
+    #         data = results.json()
+    #         if data == None:
+    #             return 'back'
+    #         total_itens = 0
+    #         for componente, detalhes in data.items():
+    #             contagem_comp = {chave: len(valor) for chave, valor in detalhes.items()}
+    #     elif maq and model == None:
+    #         results = requests.get(f'{self.link}/Equipamentos/{maq}.json')                                   
+    #         data = results.json()
+    #         for key, valor  in data.items():
+    #             componentes = valor.get('Componentes', {})
+    #             total_itens = 0
+    #             for componente, detalhes in componentes.items():
+    #                 if detalhes == {'vazio': 'vazio'}:
+    #                     continue
+    #                 total_itens += len(detalhes)
+    #             contagem_comp[key] = total_itens
             
-        itens_iguais = []
-        for key, valor in contagem_comp.items():
-            if key in db_contagem_comp and valor == db_contagem_comp[key]:
-                itens_iguais.append(key)
+    #     itens_iguais = []
+    #     for key, valor in contagem_comp.items():
+    #         if key in db_contagem_comp and valor == db_contagem_comp[key]:
+    #             itens_iguais.append(key)
         
-        return itens_iguais
+    #     return itens_iguais
 
     def first_page(self, page):
         while len(self.cont_way.content.controls[1].controls) > 2:
             self.cont_way.content.controls[1].controls.pop()
+
+        while len(self.button_add.content.controls) > 1:
+            self.button_add.content.controls.pop()
+
         self.cont_way.content.controls[1].controls[-1].disabled =True
         self.cont_way.content.controls[0].on_click = lambda e: HomeScreen(page, self.user)
         page.controls.clear()
@@ -550,9 +720,9 @@ class Arotec(ft.Container):
                 content=ft.Column(
                     [
                         ft.ListView([
-                                ft.FilledTonalButton('Cortadoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE ,text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Cortadoras')),
-                                ft.FilledTonalButton('Embutidoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Embutidoras')),
-                                ft.FilledTonalButton('Politrizes e Lixadeiras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Politriz e Lixadeira')),
+                                ft.FilledTonalButton('Cortadoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.Colors.WHITE ,text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Cortadoras')),
+                                ft.FilledTonalButton('Embutidoras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.Colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Embutidoras')),
+                                ft.FilledTonalButton('Politrizes e Lixadeiras', style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.Colors.WHITE, text_style=ft.TextStyle(size=20), alignment=ft.Alignment(0, 0)), on_click=lambda e: self.equip_list(page, 'Politrizes e Lixadeiras')),
                             ],
                             spacing=20,
                             width=600,
@@ -568,39 +738,50 @@ class Arotec(ft.Container):
         )
     
     def equip_list(self, page, maquinas):
+        self.cont_way.content.controls[2].opacity = 1
+        page.update()
         requisicao = requests.get(f'{self.link}/Equipamentos/.json')
+        if requisicao.status_code == 200:
+            self.cont_way.content.controls[2].opacity = 0
+            page.update()
         dict_requisicao = requisicao.json()
         dict_mach = dict_requisicao[f'{maquinas}']
         self.list_opt.controls.clear()
         self.list_opt.divider_thickness = 1
-        self.list_downloaded = self.verificacao(maquinas)
+        self.list_opt.spacing = 10
+        # self.list_downloaded = self.verificacao(maquinas)
 
         for id in dict_mach:
+            if id == 'valid' or id == 'categorias':
+                continue
             mach_row = ft.Row(
                 [
-                    ft.Icon(ft.icons.ARROW_RIGHT),
-                    ft.TextButton(content=ft.Text(f'{id}'), on_click=lambda e, id=id: self.selected_maq(page, maquinas, id)),
+                    ft.Icon(ft.Icons.ARROW_RIGHT),
+                    ft.TextButton(f'{id}', on_click=lambda e, id=id: self.categories(page, maquinas, id)),
                     ft.Container(expand=True),
-                    ft.IconButton(
-                        icon=ft.icons.DOWNLOAD if id not in self.list_downloaded else ft.icons.DOWNLOAD_DONE_OUTLINED,
-                        on_click=lambda e, maquinas=maquinas, id=id: self.download(page, maquinas, id),
-                        tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
-                        disabled= True if id in self.list_downloaded else False
-                    ),
+                    # ft.IconButton(
+                    #     icon=ft.Icons.DOWNLOAD if id not in self.list_downloaded else ft.Icons.DOWNLOAD_DONE_OUTLINED,
+                    #     on_click=lambda e, maquinas=maquinas, id=id: self.download(page, maquinas, id),
+                    #     tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
+                    #     disabled= True if id in self.list_downloaded else False
+                    # ),
                     ft.PopupMenuButton(items=[
-                        ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click=lambda e, id=id: edit(id)),
-                        ft.PopupMenuItem('Favoritos', ft.icons.STAR_BORDER_OUTLINED),
-                        ft.PopupMenuItem('Delete', ft.icons.DELETE, on_click=lambda e, id=id: delete(id))
+                        ft.PopupMenuItem('Editar', ft.Icons.EDIT, on_click=lambda e, id=id: edit(id)),
+                        ft.PopupMenuItem('Favoritos', ft.Icons.STAR_BORDER_OUTLINED),
+                        # ft.PopupMenuItem('Delete', ft.Icons.DELETE, on_click=lambda e, id=id: delete(id))
                     ])
                 ]
             )
-            if self.user != 'admin':
-                mach_row.controls[4].items.pop()
+            # if self.user != 'admin':
+            #     mach_row.controls[3].items.pop()
             self.list_opt.controls.append(mach_row)
 
         
         while len(self.cont_way.content.controls[1].controls) > 2:
             self.cont_way.content.controls[1].controls.pop()
+
+        while len(self.button_add.content.controls) > 1:
+            self.button_add.content.controls.pop()
 
         self.cont_way.content.controls[0].on_click = lambda e: self.first_page(page)
         self.cont_way.content.controls[1].controls[1].disabled = False
@@ -623,10 +804,25 @@ class Arotec(ft.Container):
         def edit(id):
             def save():
                 dlg.actions.clear()
+                if self.edit.value == '':
+                    dlg.content = ft.Column(
+                        [
+                            ft.Row(
+                                [ft.IconButton('close', on_click= lambda e: page.close(dlg))], 
+                                alignment=ft.MainAxisAlignment.END
+                            ),
+                            ft.Text(f'⚠️\nAlteração mal sucedida.\nAdicione o nome da máquina e tente novamente.', text_align='center', size=18),
+                        ],
+                        tight=True,
+                        spacing=0
+                    )
+                    dlg.content_padding = 20
+                    page.update()
+                    return
                 if self.edit.value in dict_mach:
                     dlg.actions.append(
                         ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Máquina já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Máquina já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             alignment=ft.alignment.center
                         )
                     )
@@ -640,7 +836,7 @@ class Arotec(ft.Container):
                     )
                     page.update()
                     old_path = f'{self.link}/Equipamentos/{maquinas}/{id}/'
-                    new_path = f'{self.link}/Equipamentos/{maquinas}/{self.edit.value}/'
+                    new_path = f'{self.link}/Equipamentos/{maquinas}/{self.edit.value.upper()}/'
                     response = requests.get(f"{old_path}.json")
                     data = response.json()
                     requests.put(f"{new_path}.json", data=json.dumps(data))
@@ -649,7 +845,7 @@ class Arotec(ft.Container):
                     page.close(dlg)
 
 
-            self.edit = ft.TextField(label='Máquina', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+            self.edit = ft.TextField(label='Máquina', border_radius=16, on_submit=lambda e: save(), autofocus=True, value=f'{id}')
 
             dlg = ft.AlertDialog(
                 actions=[
@@ -658,54 +854,55 @@ class Arotec(ft.Container):
                             self.edit,
                             ft.FilledButton(text="Salvar", on_click=lambda e: save())
                         ],
-                        spacing=8
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
                     ),
                 ],
                 actions_padding=10,
             )
             page.open(dlg)
 
-        def delete(id):
-            emoji = '\u26A0'
-            alerta = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text(f"Você realmente deseja apagar {id}?"),
-                    content=ft.ResponsiveRow([ 
-                                ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
-                            ]),
-                    actions=[
-                        ft.TextButton("Yes", on_click=lambda e: yes_no('yes')),
-                        ft.TextButton("No", on_click=lambda e: yes_no('no')),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                )
-            page.open(alerta)
-            def yes_no(answer):
-                if answer == 'yes':
-                    alerta.title = None
-                    alerta.actions = None
-                    alerta.content.controls = [
-                        ft.Column(
-                            [ft.ProgressRing(), ft.Text('Apagando')], 
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            tight=True
-                        ),
-                    ]
-                    page.update()
-                    link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
-                    requests.delete(f'{link}/Equipamentos/{maquinas}/{id}.json')
-                    self.equip_list(page, maquinas)
-                    page.close(alerta)
-                else:
-                    page.close(alerta)
+        # def delete(id):
+        #     emoji = '\u26A0'
+        #     alerta = ft.AlertDialog(
+        #             modal=True,
+        #             title=ft.Text(f"Você realmente deseja apagar {id}?"),
+        #             content=ft.ResponsiveRow([ 
+        #                         ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
+        #                     ]),
+        #             actions=[
+        #                 ft.TextButton("Yes", on_click=lambda e: yes_no('yes')),
+        #                 ft.TextButton("No", on_click=lambda e: yes_no('no')),
+        #             ],
+        #             actions_alignment=ft.MainAxisAlignment.END,
+        #         )
+        #     page.open(alerta)
+        #     def yes_no(answer):
+        #         if answer == 'yes':
+        #             alerta.title = None
+        #             alerta.actions = None
+        #             alerta.content.controls = [
+        #                 ft.Column(
+        #                     [ft.ProgressRing(), ft.Text('Apagando')], 
+        #                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        #                     tight=True
+        #                 ),
+        #             ]
+        #             page.update()
+        #             link = 'https://appat-5805e-default-rtdb.firebaseio.com/AROTEC'
+        #             requests.delete(f'{link}/Equipamentos/{maquinas}/{id}.json')
+        #             self.equip_list(page, maquinas)
+        #             page.close(alerta)
+        #         else:
+        #             page.close(alerta)
 
         def new_model(page, mach):
             def save():
                 dlg.actions.clear()
-                if self.name.value in dict_mach:
+                if self.name.value.upper() in dict_mach:
                     dlg.actions.append(
                         ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Máquina já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Máquina já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             alignment=ft.alignment.center
                         )
                     )
@@ -719,7 +916,8 @@ class Arotec(ft.Container):
                     )
                     page.update()
                     dados = {"status": "vazio"}
-                    requests.put(f'{self.link}/Equipamentos/{mach}/{self.name.value}/Componentes.json', data=json.dumps(dados))
+                    requests.put(f'{self.link}/Equipamentos/{mach}/{self.name.value.upper()}/componentes.json', data=json.dumps(dados))
+                    requests.put(f'{self.link}/Equipamentos/{mach}/{self.name.value.upper()}/erros.json', data=json.dumps(dados))
                     self.equip_list(page, mach)
                     page.close(dlg)
                 
@@ -733,48 +931,743 @@ class Arotec(ft.Container):
                             self.name,
                             ft.FilledButton(text="Salvar", on_click=lambda e: save())
                         ],
-                        spacing=8
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
                     ),
                 ],
                 actions_padding=10,
             )
             page.open(dlg)
+    
+    def categories(self, page, maq, model):
+        self.cont_way.content.controls[2].opacity = 1
+        page.update()
+        requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/categorias.json')
+        self.dict_category = requisicao.json()
+        if requisicao.status_code == 200:
+            self.cont_way.content.controls[2].opacity = 0
+            page.update()
+
+        if len(page.controls) == 0:
+            page.add(self.cont_way, ft.Divider())
+
+        while len(page.controls) > 2: 
+            page.controls.pop()
+
+        while len(self.cont_way.content.controls[1].controls) > 2:
+            self.cont_way.content.controls[1].controls.pop()
+
+        try:
+            self.cont_way.content.controls[0].on_click = lambda e: self.equip_list(page, maq)
+            self.cont_way.content.controls[1].controls[2].on_click = lambda e: self.equip_list(page, maq)
+            self.cont_way.content.controls[1].controls[-1].disabled = False
+        except IndexError:
+            self.cont_way.content.controls[1].controls[-1].disabled = False
+            self.cont_way.content.controls[1].controls.append(
+                ft.TextButton(content=ft.Text(f'{maq}', size=22), on_click = lambda e: self.equip_list(page, maq)),
+                )
+            self.cont_way.content.controls[0].on_click = lambda e: self.equip_list(page, maq)
+
+        self.opt_category = ft.Dropdown(
+            options=[
+                ft.dropdown.Option(f'   {item}')
+                for item in self.dict_category
+            ],
+            label='Categoria de Erros', border_radius=20,
+            max_menu_height = 200, filled=None,
+            bgcolor='#ffffff', border_color= '#ffffff',
+            on_click=lambda e: dropdown_change(e)
+        )
+
+        page.add(
+            ft.Container(
+                bgcolor='#35588e',
+                content= ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(f'{model.upper()}', size=100, 
+                                        color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE
+                                ),
+                                ft.Container(
+                                    ft.Image("assets/arotec.png", color='#ffffff'),
+                                    border_radius=50, width=100,
+                                    padding=5, margin=ft.Margin(10,40,0,0)
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.START,
+                        ),
+                        ft.Text(f'   Selecione o erro apresentado', size=15, 
+                                color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE
+                        ),
+                        self.opt_category,
+                        ft.Container(height=15),
+                        ft.Row(
+                            [
+                                ft.ElevatedButton(
+                                    text="Abrir lista de erros completa ", width=210, height=40, bgcolor='#ffffff'
+                                ),
+                                ft.ElevatedButton(
+                                    text="Prosseguir", width=100, height=40, bgcolor='#ffffff',
+                                    on_click=lambda e: prosseguir()
+                                )
+                            ],
+                            
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        )
+                    ],
+                    expand=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                expand=True,
+                padding=ft.Padding(150,0,150,0),
+            )
+        )
+
+        page.update()
+
+        def dropdown_change(e):
+            if e.control.value == None:
+                e.control.label = ''
+            e.control.label = ''
+            e.page.update()
+        
+        def prosseguir():
+            if self.opt_category.value == None:
+                return
+            else:
+                category = self.opt_category.value.strip()
+                self.issue(page, maq, model, category)
             
-    def selected_maq(self, page, maq, model):
-        requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
-        dict_problem = requisicao.json()
+        
+    def issue(self, page, maq, model, category, comp=None):
+        self.cont_way.content.controls[2].opacity = 1
+        page.update()
+        requisicao_categ = requests.get(f'{self.link}/Equipamentos/{maq}/categorias.json')
+        requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/erros.json')
+        self.dict_issue = requisicao.json()
+        self.dict_category = requisicao_categ.json()
+        self.categ_id = self.dict_category[category].strip("'\"")
+        self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
+        self.comp_list = []
+        if requisicao.status_code == 200:
+            self.cont_way.content.controls[2].opacity = 0
+            page.update()
+        self.list_opt.divider_thickness = 0
+        self.list_opt.spacing = 30
+        self.list_opt.controls.clear()
+
+        try:
+            for chave, valores in self.dict_issue.items():
+                componente_id = valores['componente_id']
+                self.comp_list.append(componente_id)
+        except TypeError:
+            pass
+
+        if self.dict_issue == None:
+            self.equip_list(page, maq)
+            return
+        
+        for id in self.dict_issue.keys():
+            if id == 'status':
+                pass
+            elif self.dict_issue[id]['categoria'] != int(self.categ_id):
+                continue
+            else:
+                issue_row = ft.Container(
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Container(width=50),
+                                    ft.TextButton(content=ft.Text(f'{id}', size=20, text_align='start'), on_click=lambda e, id = id: self.issue_content(page, maq, model, id, category)),
+                                    ft.Container(expand=True),
+                                ]
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Container(width=63), 
+                                    ft.Text(
+                                        value = self.dict_issue[id]['descricao'], size=16,
+                                        expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
+                                        no_wrap=True
+                                    ),
+                                ],
+                                width=700
+                            )
+                        ],
+                        spacing=0
+                    ),
+                )
+                comp_name = self.componentes_list[self.dict_issue[id]['componente_id']]['nome']
+                if comp and comp_name != comp:
+                    continue
+                elif comp and comp_name == comp:
+                    self.list_opt.controls.append(issue_row)
+                else:
+                    self.list_opt.controls.append(issue_row)        
+
+        if len(page.controls) == 0:
+            page.add(self.cont_way, ft.Divider())
+        
+        while len(page.controls) > 2: 
+            page.controls.pop()
+        
+        while len(self.cont_way.content.controls[1].controls) > 3:
+            self.cont_way.content.controls[1].controls.pop()
+
+        try:
+            self.cont_way.content.controls[0].on_click = lambda e: self.categories(page, maq, model)
+            self.cont_way.content.controls[1].controls[2].on_click = lambda e: self.equip_list(page, maq)
+            self.cont_way.content.controls[1].controls[-1].disabled = False,
+            self.cont_way.content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{model}', size=22), on_click = lambda e: self.categories(page, maq, model))) #adicionando a trilha
+            self.button_add.content.controls[0].text = 'Adicionar Erro'
+            self.button_add.content.controls[0].on_click=lambda e: new_issue() # função button add
+            if len(self.button_add.content.controls) < 2:
+                if comp:
+                    self.button_add.content.controls.append(ft.ElevatedButton(text=f'{comp}', icon=ft.Icons.FILTER_ALT_OFF_ROUNDED, width=250, on_click=lambda e: self.issue(page, maq, model, category)))
+                else:
+                    self.button_add.content.controls.append(ft.ElevatedButton(text='Filtrar por Componentes', icon=ft.Icons.FILTER_ALT, width=250, on_click=lambda e: self.selected_maq(page, maq, model, category)))
+            else:
+                if comp:
+                    self.button_add.content.controls.pop()
+                    self.button_add.content.controls.append(ft.ElevatedButton(text=f'{comp}', icon=ft.Icons.FILTER_ALT_OFF_ROUNDED, width=250, on_click=lambda e: self.issue(page, maq, model, category)))
+                else:
+                    if len(self.button_add.content.controls) > 2:
+                        self.button_add.content.controls.pop()
+                        self.button_add.content.controls.pop()
+                        self.button_add.content.controls.append(ft.ElevatedButton(text='Filtrar por Componentes', icon=ft.Icons.FILTER_ALT, width=250, on_click=lambda e: self.selected_maq(page, maq, model, category)))
+                    else:
+                        self.button_add.content.controls[1].text = 'Filtrar por Componentes'
+                        self.button_add.content.controls[1].icon = ft.Icons.FILTER_ALT
+                        self.button_add.content.controls[1].on_click=lambda e: self.selected_maq(page, maq, model, category)
+        except IndexError:
+            self.cont_way.content.controls[1].controls[-1].disabled = False
+            self.cont_way.content.controls[1].controls.append(
+                ft.TextButton(content=ft.Text(f'{maq}', size=22), on_click = lambda e: self.equip_list(page, maq)),
+                )
+            self.cont_way.content.controls[1].controls.append(
+                ft.TextButton(content=ft.Text(f'{model}', size=22), on_click = lambda e: self.categories(page, maq, model))
+            )
+            self.cont_way.content.controls[0].on_click = lambda e: self.categories(page, maq, model)
+            self.button_add.content.controls[0].text = 'Adicionar Erro'
+            self.button_add.content.controls[0].on_click=lambda e: new_issue() # função button add
+            if len(self.button_add.content.controls) < 2:
+                self.button_add.content.controls.append(ft.ElevatedButton(text='Filtrar por Componentes', icon=ft.Icons.FILTER_ALT, width=250, on_click=lambda e: self.selected_maq(page, maq, model, category)))
+            else:
+                self.button_add.content.controls[1].text = 'Filtrar por Componentes'
+                self.button_add.content.controls[1].icon = ft.Icons.FILTER_ALT
+                self.button_add.content.controls[1].on_click=lambda e: self.selected_maq(page, maq, model, category)
+
+        page.add(
+            self.button_add,
+            ft.Row(
+                [
+                    ft.Container(
+                        bgcolor="#35588e",
+                        content=ft.Row(
+                            [
+                                ft.Text(f'{category}', size=24, color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE),
+                            ],
+                            alignment = ft.MainAxisAlignment.CENTER,
+                            width=300
+                        ),
+                        border_radius= ft.BorderRadius(16,0,0,16),
+                        margin=ft.Margin(130,0,150,0),
+                    ),
+                ],
+                alignment='center'
+            ),
+            ft.Container(
+                margin=ft.Margin(80,30,0,0),
+                content=self.list_opt,
+                expand=True
+            ),
+        )
+
+        def new_issue(error=None, title=None):
+            self.componentes_maq = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json').json()
+
+            self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
+            self.comp_list_name = []
+
+            for id in self.componentes_maq:
+                if not id or id == 'status':
+                    continue
+                componente_nome = self.componentes_list[id]['nome']
+                self.comp_list_name.append(componente_nome)
+
+            self.last_id = len(self.comp_list_name)
+                               
+            def save():
+                if self.comp.value == None:
+                    self.comp.value = 'vazio'
+                error_list = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/erros.json').json()
+                indice = next(
+                    (i for i, componente in enumerate(self.componentes_list) if componente and componente.get('nome') == self.comp.value),
+                    None
+                )
+                if 'status' in error_list:
+                    error_list.pop('status')
+                counter = 1
+                original_value = self.title.value
+                while self.title.value.capitalize() in error_list:
+
+                    parts = self.title.value.split("_")
+                    if len(parts) > 1 and parts[-1].isdigit():
+                        self.title.value = "_".join(parts[:-1])
+                    else:
+                        self.title.value = original_value
+                    self.title.value = f"{self.title.value}_{counter}"
+                    counter += 1
+
+                if self.problem.content.value == '' or self.title.value == '':
+                    return
+                dlg.actions.clear()
+                dlg.actions.append(
+                    ft.Container(
+                        ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        alignment=ft.alignment.center
+                    )
+                )
+                page.update()
+                dados = {'descricao' : self.problem.content.value, 'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução'}
+                requests.put(f'{self.link}/Equipamentos/{maq}/{model}/erros/{self.title.value.capitalize()}.json', data=json.dumps(dados))
+                if 'status' in self.dict_issue:
+                    requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/erros/status.json')
+                page.close(dlg)
+                page.controls[0].content.controls[1].controls.pop()
+                self.issue(page, maq, model, category)
+
+            def new_comp():
+                def saving():
+                    new_dlg.actions.clear()
+                    if self.comp_name.value in self.comp_list_name:
+                        new_dlg.actions.append(
+                            ft.Container(
+                                ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                alignment=ft.alignment.center
+                            )
+                        )
+                        page.update()
+                    else:
+                        new_dlg.actions.append(
+                            ft.Container(
+                                ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                alignment=ft.alignment.center
+                            )
+                        )
+                        page.update()
+                        dados = {'nome': f'{self.comp_name.value}', 'fabricante': f'{self.comp_fab.value}'}
+                        id_data = {f'{self.last_id}': len(self.componentes_list)}
+                        requests.put(f'{self.link}/Componentes/{len(self.componentes_list)}.json', data=json.dumps(dados))
+                        requests.patch(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json', data= json.dumps(id_data))
+                        if 'status' in self.componentes_maq:
+                            requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/componentes/status.json')
+                        new_issue(self.problem.content.value, self.title.value)
+
+                self.comp_name = ft.TextField(label='Componente', border_radius=16, autofocus=True)
+                self.comp_fab = ft.TextField(label='Fabricante', border_radius=16)
+
+                new_dlg = ft.AlertDialog(
+                    actions=[
+                        ft.Column(
+                            [
+                                self.comp_name,
+                                self.comp_fab,
+                                ft.FilledButton(text="Salvar", on_click=lambda e: saving())
+                            ],
+                            spacing=8,
+                            horizontal_alignment=ft.CrossAxisAlignment.END
+                        ),
+                    ],
+                    actions_padding=10,
+                )
+                page.open(new_dlg)
+            
+            self.title = ft.TextField(label='Título', border_radius=16, value=title)
+            # self.crm_link = ft.TextField(label='CRM Link', border_radius=16, value=title)
+            self.comp = ft.Dropdown(
+                options=[
+                    ft.dropdown.Option(f'{item}')
+                    for item in self.comp_list_name
+                ],
+                label='Componente', border_radius=16,
+                max_menu_height = 200, filled=None
+            )
+            self.problem = ft.Container(
+                ft.TextField(
+                    label='Detalhes do erro:', border_radius=16, 
+                    multiline=True, expand=True, border_color=ft.Colors.TRANSPARENT, value=error
+                    ),
+                width=500,
+                height=100,
+                padding=ft.Padding(0,15,0,0),
+                border=ft.border.all(1, 'black'),
+                border_radius=16
+            )
+
+            dlg = ft.AlertDialog(
+                actions=[
+                    ft.Column(
+                        [
+                            self.title,
+                            self.problem,
+                            self.comp,
+                            # self.crm_link,
+                            ft.Container(height=5),
+                            ft.Row(
+                                [   
+                                    ft.FilledButton(text="Novo Componente", width=150, on_click=lambda e: new_comp()),
+                                    ft.Container(),
+                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(), width=150),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_AROUND
+                            ),
+                            ft.Container(height=10)
+                        ],
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
+                    ),
+                ],
+                actions_padding=10,
+            )
+            page.open(dlg)
+
+    def issue_content(self, page, maq, model, issue, categ):
+        self.cont_way.content.controls[2].opacity = 1
+        page.update()
+
+        while len(page.controls) > 2: 
+            page.controls.pop()
+        try:
+            self.cont_way.content.controls[1].controls[3].disabled = False
+            self.cont_way.content.controls[0].on_click = lambda e: self.issue(page, maq, model, categ)
+            self.cont_way.content.controls[1].controls[3].on_click = lambda e: self.issue(page, maq, model, categ)
+            self.cont_way.content.controls[1].controls[2].on_click = lambda e: self.equip_list(page, maq)
+        except IndexError:
+            self.cont_way.content.controls[1].controls[-1].disabled = False
+            self.cont_way.content.controls[1].controls.append(
+                ft.TextButton(content=ft.Text(f'{maq}', size=22), on_click = lambda e: self.equip_list(page, maq)),
+                )
+            self.cont_way.content.controls[1].controls.append(
+                ft.TextButton(content=ft.Text(f'{model}', size=22), disabled=False)
+            )            
+            self.cont_way.content.controls[0].on_click = lambda e: self.issue(page, maq, model, categ)
+        
+        self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
+        requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/erros/{issue}.json')
+        dict_issue = requisicao.json()
+        issue_des = dict_issue['descricao']
+        issue_sol = dict_issue['solução']
+        comp_issue = dict_issue['componente_id']
+        comp_name = self.componentes_list[comp_issue]['nome']
+        comp_fab = self.componentes_list[comp_issue]['fabricante']
+
+        if requisicao.status_code == 200:
+            self.cont_way.content.controls[2].opacity = 0
+            page.update()
+
+        sol_widget = ft.Container(
+            content=(
+                ft.Text(issue_sol, size=14, selectable=True) 
+            ),
+            bgcolor=ft.Colors.ON_INVERSE_SURFACE,
+            padding=ft.Padding(10, 10, 10, 10),
+            border_radius=16,
+            width=1000
+        ) if issue_sol != 'Adicionar Solução' else ft.ElevatedButton(content=ft.Text(issue_sol, size=14), bgcolor=ft.Colors.ON_INVERSE_SURFACE, on_click=lambda e: add_solution(issue))
+        
+        comp_widget = ft.Container(
+                content = ft.Text(f'{comp_name.capitalize()} / {comp_fab.capitalize()}', size=14, selectable=True),
+                bgcolor=ft.Colors.ON_INVERSE_SURFACE,
+                padding=ft.Padding(10,10,10,10),
+                border_radius=16,
+                width=250
+            ) if comp_name != 'vazio' else ft.ElevatedButton(
+                text="Adicionar Componente",
+                bgcolor=ft.Colors.ON_INVERSE_SURFACE,
+                on_click=lambda e: add_comp()
+            )
+        
+        page.add(
+            ft.Row(
+                [
+                    ft.Container(
+                        bgcolor="#35588e",
+                        content=ft.Row(
+                            [
+                                ft.Text(f'{categ}', size=24, color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE),
+                            ],
+                            alignment = ft.MainAxisAlignment.CENTER,
+                            width=300
+                        ),
+                        border_radius= ft.BorderRadius(16,0,0,16),
+                        margin=ft.Margin(150,20,150,20),
+                        on_click= lambda e: self.issue(page, maq, model, categ)
+                    ),
+                ],
+                alignment='center'
+            ),
+            ft.Row([ft.Text(f'{issue}', size=22, color='#35588e')], alignment='center')
+            )
+
+        page.add(
+            ft.Container(
+                margin=ft.Margin(300,10,300,0),
+                content=ft.Column(
+                    [
+                        # ft.Row([ft.Text(f'{issue}', size=22, color='#35588e')], alignment='center'),
+                        ft.Container(height=15),
+                        ft.Row([ft.Text('Detalhes do Erro:', size=16, color='black')]),
+                        ft.Container(
+                            content=ft.Text(issue_des, size=14, selectable=True),
+                            bgcolor=ft.Colors.ON_INVERSE_SURFACE,
+                            padding=ft.Padding(10,10,10,10),
+                            border_radius=16,
+                            width=1000
+                        ),
+                        ft.Container(height=15),
+                        ft.Text('Solução:', size=16),
+                        sol_widget,
+                        ft.Container(height=15),
+                        ft.Text('Componente:', size=16),
+                        comp_widget,
+                    ],
+                    spacing=5,
+                    scroll=True,
+                    expand=True,
+                ),
+            )
+        )
+
+        page.update()
+        
+        def add_solution(issue, text=''):
+            def exit():
+                try:
+                    if self.save:
+                        return
+                except AttributeError:
+                    pass
+                def handle_click():
+                    page.close(close_dlg)
+                    add_solution(issue, self.add.content.value)
+                close_dlg = ft.AlertDialog(
+                    content=ft.Text(
+                        f'⚠️Atenção⚠️\nTodos as informações inseridas serão perdidas.\nDeseja continuar?',
+                        text_align='center', 
+                        size=18
+                    ),
+                    actions = [
+                        ft.TextButton("Não", on_click=lambda e: handle_click()),
+                        ft.TextButton("Sim", on_click=lambda e: page.close(close_dlg)),
+                    ],
+                    content_padding = ft.Padding(20,20,20,10)
+                )
+                page.open(
+                    close_dlg
+                )
+            def save():
+                if self.add.content.value == '':
+                    self.add.content.focus()
+                else:  
+                    dlg.actions.clear()
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.ProgressRing(), ft.Text('Salvando alteração')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
+                    path = f'{self.link}/Equipamentos/{maq}/{model}/erros/{issue}'
+                    data = {'solução': self.add.content.value}
+                    requests.patch(f"{path}.json", json=data)
+                    self.save = True
+                    page.close(dlg)
+                    self.issue_content(page, maq, model, issue, categ)
+
+            self.add = ft.Container(
+                ft.TextField(
+                    label='Solução:', border_radius=16, on_submit=lambda e: save(), 
+                    multiline=True, expand=True, border_color=ft.Colors.TRANSPARENT, 
+                    value=text
+                ),
+                width=500,
+                height=100,
+                padding=ft.Padding(0,15,0,0),
+                border=ft.border.all(1, 'black'),
+                border_radius=16
+            )
+
+            dlg = ft.AlertDialog(
+                actions=[
+                    ft.Column(
+                        [
+                            self.add,
+                            ft.FilledButton(text="Salvar", on_click=lambda e: save())
+                        ],
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END,
+                    ),
+                ],
+                on_dismiss= lambda e: exit(),
+                actions_padding=10,
+            )
+            page.open(dlg)
+
+        def add_comp():
+            def save():
+                for id in self.componentes_maq:
+                    if not id or id == 'status':
+                        continue
+                    componente_nome = self.componentes_list[id]['nome']
+                    if componente_nome == self.comp.value:
+                        comp_id = id
+                        break
+
+                requests.patch(f'{self.link}/Equipamentos/{maq}/{model}/erros/{issue}.json', data=json.dumps({'componente_id': comp_id}))
+                page.close(dlg)
+                self.issue_content(page, maq, model, issue, categ)
+            
+            self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
+            self.componentes_maq = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json').json()
+            self.comp_list_name = []
+
+            for id in self.componentes_maq:
+                if not id or id == 'status':
+                    continue
+                componente_nome = self.componentes_list[id]['nome']
+                self.comp_list_name.append(componente_nome)
+
+            self.last_id = len(self.comp_list_name)
+
+            self.comp = ft.Dropdown(
+                options=[
+                    ft.dropdown.Option(f'{item}')
+                    for item in self.comp_list_name
+                ],
+                label='Componente' if len(self.componentes_maq) >= 1 else 'Sem componentes na lista',
+                border_radius=16,
+                max_menu_height = 200, filled=None
+            )
+            dlg = ft.AlertDialog(
+                actions=[
+                    ft.Column(
+                        [
+                            self.comp,
+                            ft.Row(
+                                [   
+                                    ft.FilledButton(text="Novo Componente", width=150, on_click=lambda e: new_comp()),
+                                    ft.Container(width=10),
+                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(), width=150),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_AROUND
+                            )
+                        ],
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
+                    ),
+                ],
+                actions_padding=10,
+            )
+            page.open(dlg)
+
+            def new_comp():
+                def saving():
+                    new_dlg.actions.clear()
+                    if self.comp_name.value in self.comp_list_name:
+                        new_dlg.actions.append(
+                            ft.Container(
+                                ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                alignment=ft.alignment.center
+                            )
+                        )
+                        page.update()
+                    else:
+                        new_dlg.actions.append(
+                            ft.Container(
+                                ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                alignment=ft.alignment.center
+                            )
+                        )
+                        page.update()
+                        dados = {'nome': f'{self.comp_name.value}', 'fabricante': f'{self.comp_fab.value}'}
+                        id_data = {f'{self.last_id}': len(self.componentes_list)}
+                        requests.put(f'{self.link}/Componentes/{len(self.componentes_list)}.json', data=json.dumps(dados))
+                        requests.patch(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json', data= json.dumps(id_data))
+                        if 'status' in self.componentes_maq:
+                            requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/componentes/status.json')
+                        add_comp()
+
+                self.comp_name = ft.TextField(label='Componente', border_radius=16, autofocus=True)
+                self.comp_fab = ft.TextField(label='Fabricante', border_radius=16)
+
+                new_dlg = ft.AlertDialog(
+                    actions=[
+                        ft.Column(
+                            [
+                                self.comp_name,
+                                self.comp_fab,
+                                ft.FilledButton(text="Salvar", on_click=lambda e: saving())
+                            ],
+                            spacing=8,
+                            horizontal_alignment=ft.CrossAxisAlignment.END
+                        ),
+                    ],
+                    actions_padding=10,
+                )
+                page.open(new_dlg)
+            
+    def selected_maq(self, page, maq, model, categ):
+        self.componentes_maq = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json').json()
+        self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
+        self.comp_list_name = []
+
+        for id in self.componentes_maq:
+            if not id or id == 'vazio':
+                continue
+            componente_nome = self.componentes_list[int(id)]['nome']
+            self.comp_list_name.append(componente_nome)
+
+
         self.list_opt.divider_thickness = 0
         self.list_opt.controls.clear()
-        self.list_downloaded = self.verificacao(maq, model)
+        self.list_opt.spacing = 10
+        # self.list_downloaded = self.verificacao(maq, model)
 
-        for id in dict_problem:
+        # if self.list_downloaded == 'back':
+        #     self.equip_list(page, maq) 
+        
+        for id in self.comp_list_name:
             if id == 'status':
                 pass
             else:
                 comp_row = ft.Container(
                     ft.Row(
                         [
-                            ft.Icon(ft.icons.ARROW_RIGHT),
+                            ft.Icon(ft.Icons.ARROW_RIGHT),
                             ft.Text(f'{id}', size=20),
                             ft.Container(expand=True),
-                            ft.IconButton(
-                                icon=ft.icons.DOWNLOAD if id not in self.list_downloaded else ft.icons.DOWNLOAD_DONE_OUTLINED,
-                                on_click=lambda e, maquinas=maq, id=id: self.download(page, maquinas, id),
-                                tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
-                                disabled= True if id in self.list_downloaded else False
-                            ),
-                            ft.PopupMenuButton(items=[
-                                ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click= lambda e, id=id: edit(id)),
-                                ft.PopupMenuItem('Deletar', ft.icons.DELETE, on_click=lambda e, id=id: delete(id)),
-                            ])
+                            # ft.IconButton(
+                            #     icon=ft.Icons.DOWNLOAD if id not in self.list_downloaded else ft.Icons.DOWNLOAD_DONE_OUTLINED,
+                            #     on_click=lambda e, maquinas=maq, id=id: self.download(page, maquinas, id),
+                            #     tooltip='Download' if id not in self.list_downloaded else 'Download realizado',
+                            #     disabled= True if id in self.list_downloaded else False
+                            # ),
+                            # ft.PopupMenuButton(items=[
+                            #     ft.PopupMenuItem('Favoritos', ft.Icons.STAR_BORDER_OUTLINED),
+                            #     ft.PopupMenuItem('Editar', ft.Icons.EDIT, on_click= lambda e, id=id: edit(id)),
+                            #     ft.PopupMenuItem('Deletar', ft.Icons.DELETE, on_click=lambda e, id=id: delete(id)),
+                            # ])
                         ]
                     ),
-                    bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                    bgcolor=ft.Colors.ON_INVERSE_SURFACE,
                     border_radius=16,
-                    on_click= lambda e, id=id: self.selected_comp(page, maq,model,id)
+                    on_click= lambda e, id=id: self.issue(page, maq,model,categ,id)
                 )
-                if self.user != 'admin':
-                    comp_row.content.controls[4].items.pop()
+                # if self.user != 'admin':
+                #     comp_row.content.controls[3].items.pop()
                 self.list_opt.controls.append(comp_row)
 
         if len(page.controls) == 0:
@@ -790,20 +1683,26 @@ class Arotec(ft.Container):
             self.cont_way.content.controls[0].on_click = lambda e: self.equip_list(page, maq)
             self.cont_way.content.controls[1].controls[2].on_click = lambda e: self.equip_list(page, maq)
             self.cont_way.content.controls[1].controls[-1].disabled = False,
-            self.cont_way.content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{model}', size=22), disabled=True)) #adicionando a trilha
+            self.cont_way.content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{model}', size=22))) #adicionando a trilha
             self.button_add.content.controls[0].text = 'Adicionar Componente'
             self.button_add.content.controls[0].on_click=lambda e: new_comp() # função button add
+            self.button_add.content.controls[1].text = 'Cancelar Filtro'
+            self.button_add.content.controls[1].icon = ft.Icons.FILTER_ALT_OFF_ROUNDED
+            self.button_add.content.controls[1].on_click=lambda e: self.issue(page, maq, model, categ)
         except IndexError:
             self.cont_way.content.controls[1].controls[-1].disabled = False
             self.cont_way.content.controls[1].controls.append(
                 ft.TextButton(content=ft.Text(f'{maq}', size=22), on_click = lambda e: self.equip_list(page, maq)),
                 )
             self.cont_way.content.controls[1].controls.append(
-                ft.TextButton(content=ft.Text(f'{model}', size=22), disabled=True)
+                ft.TextButton(content=ft.Text(f'{model}', size=22))
             )
             self.cont_way.content.controls[0].on_click = lambda e: self.equip_list(page, maq)
             self.button_add.content.controls[0].text = 'Adicionar Componente'
             self.button_add.content.controls[0].on_click=lambda e: new_comp() # função button add
+            self.button_add.content.controls[1].text = 'Cancelar Filtro'
+            self.button_add.content.controls[1].icon = ft.Icons.FILTER_ALT_OFF_ROUNDED
+            self.button_add.content.controls[1].on_click=lambda e: self.issue(page, maq, model, categ)
 
         page.add(
             self.button_add,
@@ -817,10 +1716,25 @@ class Arotec(ft.Container):
         def edit(id):
             def save():
                 dlg.actions.clear()
-                if self.edit.value in dict_problem:
+                if self.edit.value == '':
+                    dlg.content = ft.Column(
+                        [
+                            ft.Row(
+                                [ft.IconButton('close', on_click= lambda e: page.close(dlg))], 
+                                alignment=ft.MainAxisAlignment.END
+                            ),
+                            ft.Text(f'⚠️\nAlteração mal sucedida.\nAdicione o nome do componente e tente novamente.', text_align='center', size=18),
+                        ],
+                        tight=True,
+                        spacing=0
+                    )
+                    dlg.content_padding = 20
+                    page.update()
+                    return
+                if self.edit.value in self.comp_list_name:
                     dlg.actions.append(
                         ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             alignment=ft.alignment.center
                         )
                     )
@@ -834,16 +1748,16 @@ class Arotec(ft.Container):
                     )
                     page.update()
                     old_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{id}/'
-                    new_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{self.edit.value}/'
+                    new_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{self.edit.value.upper()}/'
                     response = requests.get(f"{old_path}.json")
                     data = response.json()
                     requests.put(f"{new_path}.json", data=json.dumps(data))
                     requests.delete(f"{old_path}.json")
                     page.close(dlg)
-                    self.selected_maq(page, maq, model)
+                    self.selected_maq(page, maq, model, categ)
 
 
-            self.edit = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+            self.edit = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True, value=f'{id}')
 
             dlg = ft.AlertDialog(
                 actions=[
@@ -852,7 +1766,8 @@ class Arotec(ft.Container):
                             self.edit,
                             ft.FilledButton(text="Salvar", on_click=lambda e: save())
                         ],
-                        spacing=8
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
                     ),
                 ],
                 actions_padding=10,
@@ -876,20 +1791,20 @@ class Arotec(ft.Container):
             page.open(alerta)
             def yes_no(answer):
                 if answer == 'yes':
-                    page.close(alerta)
                     requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{id}.json')
                     page.controls[0].content.controls[1].controls.pop()
-                    self.selected_maq(page, maq, model)
+                    self.selected_maq(page, maq, model, categ)
+                    page.close(alerta)
                 else:
                     page.close(alerta)
 
         def new_comp():
             def save():
                 dlg.actions.clear()
-                if self.comp.value in dict_problem:
+                if self.comp.value in self.comp_list_name:
                     dlg.actions.append(
                         ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             alignment=ft.alignment.center
                         )
                     )
@@ -902,503 +1817,35 @@ class Arotec(ft.Container):
                         )
                     )
                     page.update()
-                    dados = {'vazio': 'vazio'}
-                    requests.put(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{self.comp.value}/.json', data=json.dumps(dados))
-                    if 'status' in dict_problem:
-                        requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/status.json')
+
+                    dados = {'nome': f'{self.comp.value.capitalize()}', 'fabricante': f'{self.fab.value.capitalize()}'}
+                    dados_id = {f'{len(self.componentes_maq)}': len(self.componentes_list)}
+                    requests.put(f'{self.link}/Componentes/{len(self.componentes_list)}.json', data=json.dumps(dados))
+                    requests.patch(f'{self.link}/Equipamentos/{maq}/{model}/componentes.json', data=json.dumps(dados_id))
+                    if 'status' in self.comp_list_name:
+                        requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/componentes/status.json')
                     page.close(dlg)
                     page.controls[0].content.controls[1].controls.pop()
-                    self.selected_maq(page, maq, model)
+                    self.selected_maq(page, maq, model, categ)
 
-            self.comp = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
+            self.comp = ft.TextField(label='Componente', border_radius=16, autofocus=True)
+            self.fab = ft.TextField(label='Fabricante', border_radius=16, autofocus=True)
 
             dlg = ft.AlertDialog(
                 actions=[
                     ft.Column(
                         [
                             self.comp,
+                            self.fab,
                             ft.FilledButton(text="Salvar", on_click=lambda e: save())
                         ],
-                        spacing=8
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.END
                     ),
                 ],
                 actions_padding=10,
             )
             page.open(dlg)
-        
-    def selected_comp(self, page, maq, model, comp):
-        requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}.json')
-        dict_trouble = requisicao.json()
-        self.list_opt.controls.clear()
-        self.list_opt.divider_thickness = 0
-        self.list_opt.spacing=20
-
-
-        for problem in dict_trouble:
-            problem_details = dict_trouble[problem]
-            if isinstance(problem_details, dict):
-                descricao = problem_details.get('descrição', 'Descrição não encontrada')
-                solucao = problem_details.get('solução', 'Solução não encontrada')
-            else:
-                continue
-            cont_problem = ft.Container(
-                ft.Column(
-                    [
-                        # Texto principal
-                        ft.Row([ft.Text(f'{problem}', size=20)], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.END),
-                        ft.Divider(),
-                        
-                        # Container com Row ajustável
-                        ft.Container(
-                            margin=ft.Margin(20, 5, 20, 10),
-                            content=ft.Row(
-                                [
-                                    ft.Column(
-                                        [
-                                            ft.Text(f'Detalhes', size=20),
-                                            ft.Container(
-                                                ft.Column(
-                                                    controls=[
-                                                        ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'),
-                                                        ft.Divider(),
-                                                        ft.Row([
-                                                            ft.IconButton('open_in_new', on_click=lambda e, item=descricao: open_view(item)), 
-                                                            ft.IconButton('edit', on_click=lambda e, descricao=descricao, problem = problem : edit_info(descricao, 'Detalhes:', problem))
-                                                            ])
-                                                    ] if self.user == 'admin' else [
-                                                        ft.Text(f'{descricao}', size=18, max_lines=6, overflow='ellipsis'),
-                                                        ft.Divider(),
-                                                        ft.Row([ft.IconButton('open_in_new', on_click=lambda e, item=descricao: open_view(item))])
-                                                    ],
-                                                    spacing=0
-                                                ),
-                                                border=ft.border.all(color='black'),
-                                                border_radius=ft.border_radius.all(8),
-                                                padding=10,
-                                                expand=True
-                                            )
-                                        ],
-                                        expand=True,
-                                        horizontal_alignment='center'
-                                    ),
-                                    ft.Container(),
-                                    ft.Column(
-                                        [
-                                            ft.Text(f'Solução', size=20),
-                                            ft.Container(
-                                                ft.Column(
-                                                    controls= [
-                                                        ft.Text(f'{solucao}', size=18, max_lines=6, overflow='ellipsis'),
-                                                        ft.Divider(),
-                                                        ft.Row(
-                                                            controls=[
-                                                                ft.IconButton('open_in_new', on_click=lambda e, solucao=solucao: open_view(solucao)), 
-                                                                ft.IconButton('edit', on_click=lambda e, solucao=solucao, problem = problem : edit_info(solucao, 'Solução:', problem))
-                                                            ] if self.user == 'admin' else [
-                                                                ft.IconButton('open_in_new', on_click=lambda e, solucao=solucao: open_view(solucao))
-                                                            ]
-                                                        )
-                                                    ] if solucao != 'Adicionar Soluções' else [
-                                                        ft.TextButton(
-                                                            content=ft.Row(
-                                                                [ft.Icon('add'),ft.Text(f'{solucao}', size=18, text_align='center')]
-                                                            )
-                                                        )
-                                                    ],
-                                                    spacing=0
-                                                ),
-                                                border=ft.border.all(color='black'),
-                                                border_radius=ft.border_radius.all(8),
-                                                padding=10,
-                                                expand=True
-                                            )
-                                        ],
-                                        expand=True,
-                                        horizontal_alignment='center'
-                                    )
-                                ],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                expand=True,
-                                vertical_alignment='start'
-                            )
-                        ),
-                        ft.Container(
-                            content =ft.Row(
-                                controls = [
-                                    ft.IconButton(
-                                        icon=ft.icons.EDIT, 
-                                        on_click=lambda e, problem=problem: edit(problem)
-                                    ),
-                                    ft.IconButton(
-                                        icon=ft.icons.DELETE, 
-                                        on_click=lambda e, problem=problem: delete(problem)
-                                    ),
-                                    ft.Container(expand=True),
-                                    ft.Icon('check_circle')
-                                ] if solucao != 'Adicionar Soluções' else [
-                                    ft.IconButton(
-                                        icon=ft.icons.EDIT, 
-                                        on_click=lambda e, problem=problem: edit(problem)
-                                    ),
-                                    ft.IconButton(
-                                        icon=ft.icons.DELETE, 
-                                        on_click=lambda e, problem=problem: delete(problem)
-                                    ),
-                                    ft.Container(expand=True),
-                                    ft.Icon('QUESTION_MARK')
-                                ],
-                                alignment='spaceBetween'
-                            ) if self.user == 'admin' else ft.Row(
-                                controls = [
-                                    ft.IconButton(
-                                        icon=ft.icons.EDIT, 
-                                        on_click=lambda e, problem=problem: edit(problem)
-                                    ),
-                                    ft.Icon('check_circle')
-                                ] if solucao != 'Adicionar Soluções' else [
-                                    ft.IconButton(
-                                        icon=ft.icons.EDIT, 
-                                        on_click=lambda e, problem=problem: edit(problem)
-                                    ),
-                                    ft.Icon('QUESTION_MARK')
-                                ],
-                                alignment='spaceBetween'
-                            ),
-                            margin=ft.Margin(20, 0, 20, 5)
-                        )
-                    ],
-                    expand=True,  # Expande a coluna para ocupar o espaço disponível
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=0
-                ),
-                border_radius=16,
-                bgcolor='oninversesurface',
-                padding=ft.Padding(top=20, left=0, right=0, bottom=0),
-            )
-            self.list_opt.controls.append(cont_problem)
-
-        comp_row = ft.Container(
-            ft.Row(
-                [
-                    ft.Icon(ft.icons.ARROW_RIGHT, rotate = ft.Rotate(angle=3.14159 / 2)),
-                    ft.Text(f'{comp}', size=20),
-                    ft.Container(expand=True),
-                    ft.IconButton(ft.icons.DOWNLOAD),
-                    ft.PopupMenuButton(items=[
-                        ft.PopupMenuItem('Favoritos', ft.icons.STAR_BORDER_OUTLINED),
-                        ft.PopupMenuItem('Editar', ft.icons.EDIT, on_click= lambda e, comp=comp: edit_comp(comp)),
-                        ft.PopupMenuItem('Deletar', ft.icons.DELETE, on_click=lambda e, comp=comp: delete_comp(comp)),
-                    ])
-                ]
-            ),
-            margin=ft.Margin(5,15,5,5),
-            bgcolor=ft.colors.ON_INVERSE_SURFACE,
-            border_radius=16,
-            on_click= lambda e: self.selected_maq(page, maq, model)
-        )
-        if self.user != 'admin':
-            comp_row.content.controls[4].items.pop()
-            comp_row.content.controls[4].items.pop()
-
-        def edit_comp(id):
-            def save():
-                dlg.actions.clear()
-                requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/Componentes.json')
-                dict_problem = requisicao.json()
-                if self.edit.value in dict_problem:
-                    dlg.actions.append(
-                        ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Componente já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                    page.update()
-                else:
-                    dlg.actions.append(
-                        ft.Container(
-                            ft.Column([ft.ProgressRing(), ft.Text('Salvando alteração')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                    page.update()
-                    old_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{id}/'
-                    new_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{self.edit.value}/'
-                    response = requests.get(f"{old_path}.json")
-                    data = response.json()
-                    requests.put(f"{new_path}.json", data=json.dumps(data))
-                    requests.delete(f"{old_path}.json")
-                    page.close(dlg)
-                    self.selected_maq(page, maq, model)
-
-
-            self.edit = ft.TextField(label='Componente', border_radius=16, on_submit=lambda e: save(), autofocus=True)
-
-            dlg = ft.AlertDialog(
-                actions=[
-                    ft.Column(
-                        [
-                            self.edit,
-                            ft.FilledButton(text="Salvar", on_click=lambda e: save())
-                        ],
-                        spacing=8
-                    ),
-                ],
-                actions_padding=10,
-            )
-            page.open(dlg)
-
-        def delete_comp(id):
-            emoji = '\u26A0'
-            alerta = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text(f"Você realmente deseja apagar {id}?"),
-                    content=ft.ResponsiveRow([ 
-                                ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
-                            ]),
-                    actions=[
-                        ft.TextButton("Sim", on_click=lambda e: yes_no('yes')),
-                        ft.TextButton("Não", on_click=lambda e: yes_no('no')),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                )
-            page.open(alerta)
-            def yes_no(answer):
-                if answer == 'yes':
-                    requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{id}.json')
-                    page.close(alerta)
-                    self.selected_maq(page, maq, model)
-                else:
-                    page.close(alerta)
-
-        if len(page.controls) == 0:
-            page.add(self.cont_way, ft.Divider())
-
-        while len(page.controls) > 2: 
-            page.controls.pop()
-        
-        #reiniciando a trilha de caminhos
-        while len(self.cont_way.content.controls[1].controls) > 4:
-            self.cont_way.content.controls[1].controls.pop()
-                
-        try:
-            self.cont_way.content.controls[0].on_click = lambda e: self.selected_maq(page, maq, model)
-            self.cont_way.content.controls[1].controls[3].on_click = lambda e: self.selected_maq(page, maq, model)
-            self.cont_way.content.controls[1].controls[-1].disabled = False,
-            self.cont_way.content.controls[1].controls.append(ft.TextButton(content=ft.Text(f'{comp}', size=22), disabled=True)) #adicionando a trilha
-            self.button_add.content.controls[0].text = 'Adicionar Problemas'
-            self.button_add.content.controls[0].on_click=lambda e: new_problem() # função button add
-        except IndexError:
-            self.cont_way.content.controls[1].controls[-1].disabled = False
-            self.cont_way.content.controls[1].controls.append(
-                ft.TextButton(content=ft.Text(f'{maq}', size=22), on_click = lambda e: self.equip_list(page, maq)),
-                )
-            self.cont_way.content.controls[1].controls.append(
-                ft.TextButton(content=ft.Text(f'{model}', size=22), on_click=lambda e: self.selected_maq(page, maq, model))
-            )
-            self.cont_way.content.controls[1].controls.append(
-                ft.TextButton(content=ft.Text(f'{comp}', size=22), disabled=True)
-            )
-            self.button_add.content.controls[0].text = 'Adicionar Problemas'
-            self.button_add.content.controls[0].on_click=lambda e: new_problem()
-
-        page.add(
-            self.button_add,
-            comp_row,
-            ft.Container(
-                self.list_opt,
-                margin=ft.Margin(20,15,20,0),
-                expand=True
-            )
-        )
-
-        def new_problem():
-            def save():
-                counter = 1
-                original_value = descricao.value
-                while descricao.value in dict_trouble:
-                    parts = descricao.value.split("_")
-                    if len(parts) > 1 and parts[-1].isdigit():
-                        descricao.value = "_".join(parts[:-1])
-                    else:
-                        descricao.value = original_value
-                    descricao.value = f"{descricao.value}_{counter}"
-                    counter += 1
-                        
-                if not descricao.value.strip():
-                    descricao.error_text='Adicione uma descrição'
-                    descricao.focus()
-                elif not detail.content.value.strip():
-                    detail.content.focus()
-                else:
-                    if not resolution.content.value.strip():
-                        resolution.content.value='Adicionar Soluções'
-                    dlg.content.clean()
-                    dlg.actions.clear()
-                    dlg.content.controls.append(
-                        ft.Container(
-                            ft.Column([ft.ProgressRing(), ft.Text('Registrando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                    page.update()
-                    dados = {'descrição': f'{detail.content.value}', 'solução': f'{resolution.content.value}'}
-                    requests.put(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/{descricao.value}.json', data=json.dumps(dados))
-                    if 'vazio' in dict_trouble:
-                        requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/vazio.json')
-                    page.close(dlg)
-                    self.selected_comp(page, maq, model, comp)
-            descricao = ft.TextField(label='Descrição', border_radius=16, on_submit=lambda e: save(), autofocus=True)
-            detail = ft.Container(
-                ft.TextField(
-                    label='Detalhes do erro:', border_radius=16, on_submit=lambda e: save(), 
-                    multiline=True, expand=True, border_color=ft.colors.TRANSPARENT,
-                    ),
-                width=500,
-                height=100,
-                padding=ft.Padding(0,15,0,0),
-                border=ft.border.all(1, 'black'),
-                border_radius=16
-            )
-            resolution = ft.Container(
-                ft.TextField(label='Solução:', border_radius=16, on_submit=lambda e: save(), multiline=True, expand=True, border_color=ft.colors.TRANSPARENT),
-                width=500,
-                height=100,
-                padding=ft.Padding(0,15,0,0),
-                border=ft.border.all(1, 'black'),
-                border_radius=16
-            )
-
-            dlg = ft.AlertDialog(
-                content=ft.Column(
-                    [
-                        descricao,
-                        detail,
-                        resolution,
-                        ft.Row(
-                            [
-                                ft.ElevatedButton(text="Salvar", on_click=lambda e: save(), style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE)),
-                                # ft.ElevatedButton(icon=ft.icons.ROUTE, text='Passo a Passo', on_click=lambda e: page.close(dlg), style=ft.ButtonStyle(bgcolor='#35588e' ,color=ft.colors.WHITE))
-                            ]
-                        )
-                    ],
-                    spacing=8,
-                    tight=True
-                ),
-
-            )
-            page.open(dlg)
-
-        def delete(item):
-            emoji = '\u26A0'
-            alerta = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text(f"Você realmente deseja apagar {item}?"),
-                    content=ft.ResponsiveRow([ 
-                                ft.Text(f'{emoji} Não será possível recuperar os dados apagados', size=14, col={"sm": 5, "md": 10, "xl": 10}, )
-                            ]),
-                    actions=[
-                        ft.TextButton("Sim", on_click=lambda e: yes_no('yes')),
-                        ft.TextButton("Não", on_click=lambda e: yes_no('no')),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                )
-            page.open(alerta)
-
-            def yes_no(answer):
-                if answer == 'yes':
-                    requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/{item}.json')
-                    self.selected_comp(page, maq, model, comp)
-                page.close(alerta)
-            
-        def edit(item):
-            def save():
-                dlg.actions.clear()
-                if self.edit.value in dict_trouble:
-                    dlg.actions.append(
-                        ft.Container(
-                            ft.Column([ft.Icon(ft.icons.WARNING),ft.Text('Problema já existente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                    page.update()
-                else:
-                    dlg.actions.append(
-                        ft.Container(
-                            ft.Column([ft.ProgressRing(), ft.Text('Salvando alteração')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                    page.update()
-                    old_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/{item}/'
-                    new_path = f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/{self.edit.value}/'
-                    response = requests.get(f"{old_path}.json")
-                    data = response.json()
-                    requests.put(f"{new_path}.json", data=json.dumps(data))
-                    requests.delete(f"{old_path}.json")
-                    page.close(dlg)
-                    self.selected_comp(page, maq, model, comp)
-
-
-            self.edit = ft.TextField(label='Renomear', border_radius=16, on_submit=lambda e: save(), autofocus=True)
-
-            dlg = ft.AlertDialog(
-                actions=[
-                    ft.Column(
-                        [
-                            self.edit,
-                            ft.FilledButton(text="Salvar", on_click=lambda e: save())
-                        ],
-                        spacing=8
-                    ),
-                ],
-                actions_padding=10,
-            )
-            page.open(dlg)
-
-        def open_view(item):
-            dlg = ft.AlertDialog(
-                content=ft.Column(
-                    [
-                        ft.Text(f'{item}', size=20),
-                    ],
-                    spacing=8,
-                    scroll=True,
-                ),
-                actions_padding=10,
-            )
-            page.open(dlg)
-        
-        def edit_info(text, info, name):
-            def save():
-                if info == 'Solução:':
-                    dados = {'solução': text_field.value}
-                else:
-                    dados = {'descrição': text_field.value}
-                edit_alert.actions.clear()
-                edit_alert.actions.append(
-                        ft.Container(
-                            ft.Column([ft.ProgressRing(), ft.Text('Salvando alteração')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            alignment=ft.alignment.center
-                        )
-                    )
-                page.update()
-                requests.patch(f'{self.link}/Equipamentos/{maq}/{model}/Componentes/{comp}/{name}.json', data=json.dumps(dados))
-                page.close(edit_alert),
-                self.selected_comp(page, maq, model, comp)
-            text_field = ft.TextField(f'{text}', label=info, max_lines=10, border_radius=16, multiline=True, expand=True, autofocus=True)
-            edit_alert = ft.AlertDialog(
-                actions=[
-                    ft.Column(
-                    [
-                        text_field,
-                        ft.FilledButton('Salvar', on_click=lambda e: save())
-                    ],
-                    width=500,
-                    ),
-                ],
-                actions_padding=ft.Padding(10, 10, 10, 10),
-            )
-            page.open(edit_alert)
 
 
 def main(page: ft.Page):
@@ -1406,13 +1853,27 @@ def main(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.spacing = 0
-    page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = "rgba(224, 226, 229, 0.91)"
-    # page.window.maximized = True
+    page.window.maximized = True
 
-    try:
+    CONFIG_FILE = "config.json"
+
+    def load_login_state():
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r") as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    return {"stay_logged_in": False, "username": None}
+        else:
+            return {"stay_logged_in": False, "username": None}
+    
+    login_state = load_login_state()
+    if not login_state["stay_logged_in"]:
         Loading(page)
-    except Exception as e:
-        print(e) 
+    else:
+        HomeScreen(page, login_state["username"])
 
-ft.app(target=main)
+
+if __name__ == "__main__":
+    ft.app(target=main,  assets_dir="assets")
