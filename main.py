@@ -1005,7 +1005,8 @@ class Arotec(ft.Container):
                         ft.Row(
                             [
                                 ft.ElevatedButton(
-                                    text="Abrir lista de erros completa ", width=210, height=40, bgcolor='#ffffff'
+                                    text="Abrir lista de erros completa ", width=210, height=40, bgcolor='#ffffff',
+                                    on_click= lambda e: complet_list()
                                 ),
                                 ft.ElevatedButton(
                                     text="Prosseguir", width=100, height=40, bgcolor='#ffffff',
@@ -1038,16 +1039,20 @@ class Arotec(ft.Container):
             else:
                 category = self.opt_category.value.strip()
                 self.issue(page, maq, model, category)
+
+        def complet_list():
+            self.issue(page, maq, model)
             
         
-    def issue(self, page, maq, model, category, comp=None):
+    def issue(self, page, maq, model, category=None, comp=None):
         self.cont_way.content.controls[2].opacity = 1
         page.update()
         requisicao_categ = requests.get(f'{self.link}/Equipamentos/{maq}/categorias.json')
         requisicao = requests.get(f'{self.link}/Equipamentos/{maq}/{model}/erros.json')
         self.dict_issue = requisicao.json()
         self.dict_category = requisicao_categ.json()
-        self.categ_id = self.dict_category[category].strip("'\"")
+        if category:
+            self.categ_id = self.dict_category[category].strip("'\"")
         self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
         self.comp_list = []
         if requisicao.status_code == 200:
@@ -1071,7 +1076,7 @@ class Arotec(ft.Container):
         for id in self.dict_issue.keys():
             if id == 'status':
                 pass
-            elif self.dict_issue[id]['categoria'] != int(self.categ_id):
+            elif category and self.dict_issue[id]['categoria'] != int(self.categ_id):
                 continue
             else:
                 issue_row = ft.Container(
@@ -1167,7 +1172,7 @@ class Arotec(ft.Container):
                         bgcolor="#35588e",
                         content=ft.Row(
                             [
-                                ft.Text(f'{category}', size=24, color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE),
+                                ft.Text(f'{category}' if category != None else 'Erros', size=24, color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE),
                             ],
                             alignment = ft.MainAxisAlignment.CENTER,
                             width=300
@@ -1231,7 +1236,10 @@ class Arotec(ft.Container):
                     )
                 )
                 page.update()
-                dados = {'descricao' : self.problem.content.value, 'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução'}
+                if category:
+                    dados = {'descricao' : self.problem.content.value, 'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução'}
+                else:
+                    dados = {'descricao' : self.problem.content.value, 'categoria': self.categ.value, 'componente_id': indice, 'solução': 'Adicionar Solução'}
                 requests.put(f'{self.link}/Equipamentos/{maq}/{model}/erros/{self.title.value.capitalize()}.json', data=json.dumps(dados))
                 if 'status' in self.dict_issue:
                     requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/erros/status.json')
@@ -1268,6 +1276,7 @@ class Arotec(ft.Container):
 
                 self.comp_name = ft.TextField(label='Componente', border_radius=16, autofocus=True)
                 self.comp_fab = ft.TextField(label='Fabricante', border_radius=16)
+                               
 
                 new_dlg = ft.AlertDialog(
                     actions=[
@@ -1306,6 +1315,14 @@ class Arotec(ft.Container):
                 border=ft.border.all(1, 'black'),
                 border_radius=16
             )
+            self.categ = ft.Dropdown(
+                    options=[
+                        ft.dropdown.Option(f'   {item}')
+                        for item in self.dict_category
+                    ],
+                    label='Categoria do erro', border_radius=16,
+                    max_menu_height = 200, filled=None,
+                )
 
             dlg = ft.AlertDialog(
                 actions=[
@@ -1314,7 +1331,22 @@ class Arotec(ft.Container):
                             self.title,
                             self.problem,
                             self.comp,
-                            # self.crm_link,
+                            ft.Container(height=5),
+                            ft.Row(
+                                [   
+                                    ft.FilledButton(text="Novo Componente", width=150, on_click=lambda e: new_comp()),
+                                    ft.Container(),
+                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(), width=150),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_AROUND
+                            ),
+                            ft.Container(height=10)
+                        ]if category
+                        else [
+                            self.title,
+                            self.problem,
+                            self.categ,
+                            self.comp,
                             ft.Container(height=5),
                             ft.Row(
                                 [   
@@ -1855,6 +1887,7 @@ def main(page: ft.Page):
     page.spacing = 0
     page.bgcolor = "rgba(224, 226, 229, 0.91)"
     page.window.maximized = True
+    page.theme_mode = ft.ThemeMode.LIGHT
 
     CONFIG_FILE = "config.json"
 
