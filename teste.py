@@ -8,6 +8,8 @@ import re
 from rapidfuzz import process, fuzz
 import zipfile
 import sys
+import pyrebase
+
 # import sqlite3
 
 class Loading(ft.Container):
@@ -76,12 +78,12 @@ class Loading(ft.Container):
         animate_loading()
 
 class LoginScreen(ft.Container):
-    def __init__(self, page: ft.Page):
+    def __init__(self, page: ft.Page, firebase):
         super().__init__()
         page.vertical_alignment = ft.MainAxisAlignment.CENTER
         page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
         page.bgcolor = ft.Colors.ON_PRIMARY_CONTAINER
-        ver_local = '1.0.4'
+        ver_local = '1.0.5'
         page.bottom_appbar = ft.BottomAppBar(
             ft.Row(
                 [
@@ -93,6 +95,8 @@ class LoginScreen(ft.Container):
             height=50
         )
 
+        auth = firebase.auth()
+
         if page.appbar:
             page.appbar = None
 
@@ -103,7 +107,8 @@ class LoginScreen(ft.Container):
         requisicao = requests.get(f'{link}/Logins/.json')
         dict_re = requisicao.json()
     
-        self.user = ft.TextField(on_submit=lambda e: login(), autofocus=True)
+        self.user = None
+        self.username = ft.TextField(on_submit=lambda e: login(), autofocus=True)
         password = ft.TextField(on_submit=lambda e: login(), password=True, can_reveal_password=True)
         alerta = ft.AlertDialog(
             content=ft.Column(
@@ -117,13 +122,26 @@ class LoginScreen(ft.Container):
         )
         
         CONFIG_FILE = "config.json"
-        def save_login_state(stay_logged_in, username=None):
-            data = {
-                "stay_logged_in": stay_logged_in,
-                "username": username if stay_logged_in else None
-            }
+        def save_login_state(stay_logged_in, username=None, password=None):
+            user_refresh = None
+            try:
+                self.user = auth.sign_in_with_email_and_password(username, password)
+                user_refresh = auth.refresh(self.user['refreshToken'])
+                data = {
+                    "stay_logged_in": stay_logged_in,
+                    "username": self.user if stay_logged_in else None,
+                    "refresh_token": user_refresh if stay_logged_in else None,
+                }
+            except:
+                data = {
+                    "stay_logged_in": stay_logged_in,
+                    "username":  None,
+                    "refresh_token": None,
+                }
             with open(CONFIG_FILE, "w") as f:
                 json.dump(data, f)
+
+        self.check = ft.Checkbox('Continuar logado')
 
         page.add(
             ft.Container(
@@ -131,12 +149,9 @@ class LoginScreen(ft.Container):
                     ft.Column(
                         [
                             ft.Container(content=ft.Text('Login', text_align=ft.TextAlign.END, size=32, color='#35588e'), margin=ft.Margin(0,10,0,0)),
-                            ft.Column([ft.Text('Usuário', color='#35588e', size=16), self.user]),
+                            ft.Column([ft.Text('Usuário', color='#35588e', size=16), self.username]),
                             ft.Column([ft.Text('Senha', color='#35588e', size=16), password]),
-                            ft.Checkbox(
-                                'Continuar logado', 
-                                on_change = lambda e: save_login_state(e.control.value, self.user.value),
-                                ),
+                            self.check,
                             ft.Container(content=ft.ElevatedButton('Logar', on_click=lambda e: login()), margin=ft.Margin(0,0,0,10))
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -150,22 +165,11 @@ class LoginScreen(ft.Container):
         )
 
         def login():
-            if self.user.value == 'arotec':
-                if password.value == dict_re['Default']['password']:
-                    HomeScreen(page, self.user.value)
-                else:
-                    page.open(alerta)
-            elif self.user.value == 'admin':
-                if password.value == dict_re['ADM']['password']:
-                    HomeScreen(page, self.user.value)
-                else:
-                    page.open(alerta)
-            elif self.user.value == 'developer':
-                if password.value == dict_re['DEV']['password']:
-                    HomeScreen(page, self.user.value)
-                else:
-                    page.open(alerta)
-            else:
+            try:
+                user = auth.sign_in_with_email_and_password(self.username.value, password.value)
+                save_login_state(self.check.value, self.username.value, password.value)
+                HomeScreen(page, user, firebase)
+            except:
                 page.open(alerta)
 
 class Updating(ft.Container):
@@ -192,7 +196,7 @@ class Updating(ft.Container):
                 update.content=ft.Column(
                     [
                         ft.ProgressRing(),
-                        ft.Text(f"Baixando atualização\nCaminho para download: {os.path.dirname(os.path.dirname(sys.executable))}"),
+                        ft.Text("Baixando atualização"),
                         ft.ProgressBar(visible=False)
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -241,11 +245,6 @@ class Updating(ft.Container):
                 extract_path = os.path.abspath(EXTRACT_FOLDER)
                 temp_bat = os.path.join(os.environ['TEMP'], 'remover.bat')
                 current_folder = os.path.dirname(os.path.dirname(sys.executable))
-                exe_name = 'AppAT.exe'
-
-                update.content.controls[1].value = f"Diretório atual: {current_folder}"
-                page.update()
-                time.sleep(60)
 
                 bat_content = f'''
                     @echo off
@@ -271,17 +270,7 @@ class Updating(ft.Container):
                     xcopy /e /i /h /y "{extract_path}" "{current_folder}"
 
                     :: Remove a pasta de extração após a cópia
-                    rmdir /s /q "{extract_path}"
-
-                    :: Exclui a pasta "windows" existente no Program Files
-                    echo Substituindo a pasta em C:\\Program Files\\AppAT...
-                    rmdir /s /q "C:\\Program Files\\AppAT\\windows"
-
-                    :: Copia a pasta "windows" para o diretório do Program Files
-                    xcopy /e /i /h /y "{current_folder}\\windows" "C:\\Program Files\\AppAT\\windows"
-
-                    echo Substituição concluída.
-                    exit
+                    rmdir /s /q "{extract_path}"l
                     
                     exit
                 '''
@@ -289,18 +278,18 @@ class Updating(ft.Container):
                 with open(temp_bat, 'w') as bat_file:
                     bat_file.write(bat_content)
                 
-                os.system(f'start "" "{temp_bat}"')
+                os.system(f'powershell -Command "Start-Process \'{temp_bat}\' -Verb runAs"')
 
 class HomeScreen(ft.Container):
-    def __init__(self, page: ft.Page, user):
+    def __init__(self, page: ft.Page, user, firebase):
         super().__init__(page)
         page.vertical_alignment = ft.MainAxisAlignment.START
         page.horizontal_alignment = ft.CrossAxisAlignment.START
         page.bgcolor = ft.Colors.ON_PRIMARY
         self.user = user
-        self.arotec_screen = Arotec(page, self.user)
+        self.arotec_screen = Arotec(page, self.user, firebase)
 
-        ver_local = '1.0.4'
+        ver_local = '1.0.5'
         ver = requests.get('https://appat-5805e-default-rtdb.firebaseio.com/versão.json')
 
         page.bottom_appbar = ft.BottomAppBar(
@@ -319,7 +308,7 @@ class HomeScreen(ft.Container):
 
         page.appbar = ft.AppBar(
             bgcolor=ft.Colors.ON_INVERSE_SURFACE,
-            leading=ft.Image('assets/logo.png'),
+            leading=ft.Container(ft.Image('assets/logo.png'), on_click= lambda e:HomeScreen(page, user, firebase)),
             leading_width=120,
             center_title=True,
             actions=[
@@ -445,13 +434,12 @@ class HomeScreen(ft.Container):
             data = response.json()
             requests.put(f"{link_dev}.json", data=json.dumps(data))
 
-
         def close_search(e=None):
             page.appbar.title = None
             page.update()
         
         def searching(word):
-            self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/'
+            self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/AROTEC'
             requisicao = requests.get(f'{self.link}/Equipamentos/.json')
             dic_requisicao = requisicao.json()
             search_list = ft.ListView(spacing=15)
@@ -465,7 +453,7 @@ class HomeScreen(ft.Container):
                         margin=ft.Margin(20, 0, 60, 0),
                         content=ft.Row(
                             [
-                                ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, user)),
+                                ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, user, firebase)),
                                 ft.TextButton(content=ft.Text("Pesquisa", size=22)),
                                 ft.Container() 
                             ],
@@ -522,16 +510,16 @@ class HomeScreen(ft.Container):
             return results
     
         def go_to(string):
-            screen = Arotec(page, self.user)
+            screen = Arotec(page, self.user, firebase)
             sections = [section.strip() for section in string.split(" - ")]
             maq = sections[0] if len(sections) >= 1 else None
             model = sections[1] if len(sections) >= 2 else None
-            comp = sections[3] if len(sections) >=4 else None
+            problem = sections[3] if len(sections) >=4 else None
 
-            if comp:
-                pass
+            if problem:
+                screen.issue_content(page, maq, model, problem, 'search')
             elif model:
-                screen.selected_maq(page, maq, model)
+                screen.categories(page, maq, model)
             else:
                 screen.equip_list(page, maq)
 
@@ -569,10 +557,14 @@ class HomeScreen(ft.Container):
                     ),
                     ft.Container(height=12),
                     ft.NavigationDrawerDestination(
-                        icon=ft.Icon(ft.Icons.STAR),
-                        label="Favoritos",
+                        icon=ft.Icon(ft.Icons.LIGHTBULB),
+                        label="Sugestões",
                     ),
-                    
+                    ft.Container(height=12),
+                    ft.NavigationDrawerDestination(
+                        icon=ft.Icon(ft.Icons.ERROR),
+                        label="Relatar Erro",
+                    ),
                     # ft.Container(height=12),
                     # ft.NavigationDrawerDestination(
                     #     icon=ft.Icon(ft.Icons.TEXT_SNIPPET),
@@ -593,13 +585,39 @@ class HomeScreen(ft.Container):
             elif e.control.selected_index == 1:
                 pass
             elif e.control.selected_index == 2:
-                pass
+                page.close(menu)
+                page.open(
+                    ft.AlertDialog(
+                        content=ft.Container(
+                            ft.Column(
+                                controls=[
+                                    ft.Text('Deixe aqui suas sugestões para o aplicativo', text_align='center', size=22),
+                                    ft.Container(
+                                        ft.TextField(multiline=True, border_color=ft.Colors.TRANSPARENT),
+                                        expand=True, border=ft.border.all(1, color=ft.Colors.BLUE_GREY_500),
+                                        border_radius= 16
+                                    )
+                                ],
+                                height=200,
+                                spacing=15,
+                            ),
+                        ),
+                        actions=[
+                            ft.Row(
+                                controls=[
+                                    ft.TextButton("Cancelar"),
+                                    ft.TextButton("Enviar"),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                            )
+                        ],
+                        content_padding=ft.Padding(20,15,20,0),
+                        actions_padding=ft.Padding(40,10,40,12)
+                    )
+                )
             # elif e.control.selected_index == 3:
             #     print("Relatório clicado!")
-            elif e.control.selected_index == 3:
-                for control in page.controls:
-                    control.disabled = True
-                page.update()
+            elif e.control.selected_index == 4:
                 page.close(menu)
                 save_login_state(False, None)
                 LoginScreen(page)  
@@ -608,31 +626,30 @@ class HomeScreen(ft.Container):
             CONFIG_FILE = "config.json"
             data = {
                 "stay_logged_in": stay_logged_in,
-                "username": username if stay_logged_in else None
+                "username": username if stay_logged_in else None,
+                "refresh_token": None
             }
             with open(CONFIG_FILE, "w") as f:
                 json.dump(data, f)          
 
 class Arotec(ft.Container):
-    def __init__(self, page: ft.Page, user):
+    def __init__(self, page: ft.Page, user, firebase):
         super().__init__(page)
         self.user = user
+        self.auth = firebase.auth()
+        self.storage = firebase.storage()
+        self.id_token = user['idToken']
+        self.refresh_token = user['refreshToken']
+        
         page.controls.clear()
-        self.page = page
-        try:
-            for control in page.controls:
-                control.disabled = False
-        except TypeError:
-            pass
-        page.update()
         self.cont_way = ft.Container(
-            margin=ft.Margin(20, 0, 60, 0),
+            margin=ft.Margin(0, 0, 0, 0),
             content=ft.Row(
                 [
-                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, self.user)),
+                    ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, on_click=lambda e: HomeScreen(page, self.user, firebase)),
                     ft.Row(
                         [
-                            ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page, self.user)),
+                            ft.TextButton(content=ft.Text("Arotec", size=22), on_click=lambda e: HomeScreen(page, self.user, firebase)),
                             ft.TextButton(content=ft.Text("Máquinas", size=22), disabled=True, on_click=lambda e: self.first_page(page)),
                         ],
                     ),
@@ -641,15 +658,15 @@ class Arotec(ft.Container):
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN
             )
         )
-        self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/AROTEC' 
+        self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/AROTEC'
         if self.user == 'developer':
             self.link = 'https://appat-5805e-default-rtdb.firebaseio.com/DEV'
         self.list_opt = ft.ListView(spacing=10, padding=0, divider_thickness=1, expand=True)
         self.button_add = ft.Container(
-            margin=ft.Margin(130,10,150,0),
+            margin=ft.Margin(150,10,150,0),
             content=ft.Row(
                 [
-                    ft.ElevatedButton(icon=ft.Icons.ADD, text='Adicionar Máquina', width=250, height=40)
+                    ft.ElevatedButton(icon=ft.Icons.ADD, text='Adicionar Máquina', width=250)
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN
             ),
@@ -877,7 +894,7 @@ class Arotec(ft.Container):
                 norm_keys = {re.sub(r'\W+', '', item).upper(): item for item in dict_mach}
 
                 match, score, _ = process.extractOne(normalized, norm_keys.keys(), scorer=fuzz.ratio)
-                threshold = 80
+                threshold = 90
 
                 if normalized in norm_keys:
                     dlg.actions.append(
@@ -887,6 +904,7 @@ class Arotec(ft.Container):
                         )
                     )
                     page.update()
+                    return
 
                 elif score >= threshold and verify:
                     dlg.actions.append(
@@ -894,7 +912,7 @@ class Arotec(ft.Container):
                             ft.Column(
                                 [
                                     ft.Icon(ft.Icons.WARNING),ft.Text(f'Modelo semelhante encontrado - {norm_keys[match]}'),
-                                    ft.Text(f'Deseja continuar salvando {self.name.value.upper()}?'),
+                                    ft.Text(f'Deseja continuar salvando {self.edit.value.upper()}?'),
                                     ft.Row(
                                         [
                                             ft.TextButton('Cancelar', on_click=lambda e: page.close(dlg)),
@@ -911,6 +929,7 @@ class Arotec(ft.Container):
                     )
                     dlg.actions
                     page.update()
+                    return
 
                 if self.edit.value in dict_mach:
                     dlg.actions.append(
@@ -996,9 +1015,7 @@ class Arotec(ft.Container):
                 norm_keys = {re.sub(r'\W+', '', item).upper(): item for item in dict_mach}
 
                 match, score, _ = process.extractOne(normalized, norm_keys.keys(), scorer=fuzz.ratio)
-                threshold = 80
-
-                print(f'{score}\n{match}\n{norm_keys}')
+                threshold = 90
 
                 if normalized in norm_keys:
                     dlg.actions.append(
@@ -1008,6 +1025,8 @@ class Arotec(ft.Container):
                         )
                     )
                     page.update()
+                    return 
+                
                 elif self.name.value == '' or self.name.value == None:
                     self.name.error_style = True
                     page.update()
@@ -1033,8 +1052,8 @@ class Arotec(ft.Container):
                             alignment=ft.alignment.center
                         )
                     )
-                    dlg.actions
                     page.update()
+                    return
 
                 else:
                     dlg.actions.append(
@@ -1102,7 +1121,7 @@ class Arotec(ft.Container):
                 ft.dropdown.Option(f'   {item}')
                 for item in self.dict_category
             ],
-            label='Categoria de Erros', border_radius=20,
+            label='  Selecione a categoria do erro apresentado', border_radius=20,
             max_menu_height = 200, filled=None,
             bgcolor='#ffffff', border_color= '#ffffff',
             on_click=lambda e: dropdown_change(e)
@@ -1124,10 +1143,7 @@ class Arotec(ft.Container):
                                     padding=5, margin=ft.Margin(10,40,0,0)
                                 ),
                             ],
-                            alignment=ft.MainAxisAlignment.START,
-                        ),
-                        ft.Text(f'   Selecione o erro apresentado', size=15, 
-                                color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE
+                            alignment=ft.MainAxisAlignment.SPACE_AROUND,
                         ),
                         self.opt_category,
                         ft.Container(height=15),
@@ -1190,6 +1206,7 @@ class Arotec(ft.Container):
         self.list_opt.divider_thickness = 0
         self.list_opt.spacing = 30
         self.list_opt.controls.clear()
+        self.list_opt.padding = ft.Padding(0,0,0,10)
 
         try:
             for chave, valores in self.dict_issue.items():
@@ -1202,36 +1219,77 @@ class Arotec(ft.Container):
             self.equip_list(page, maq)
             return
         
+
+        
         for id in self.dict_issue.keys():
             if id == 'status':
                 pass
             elif category and self.dict_issue[id]['categoria'] != int(self.categ_id):
                 continue
             else:
-                issue_row = ft.Container(
-                    ft.Column(
-                        [
-                            ft.Row(
-                                [
-                                    ft.Container(width=50),
-                                    ft.TextButton(content=ft.Text(f'{id}', size=25, text_align='start'), on_click=lambda e, id = id: self.issue_content(page, maq, model, id, category)),
-                                    ft.Container(expand=True),
-                                ]
-                            ),
-                            ft.Row(
-                                [
-                                    ft.Container(width=63), 
-                                    ft.Text(
-                                        value = self.dict_issue[id]['descricao'], size=18,
-                                        expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-                                        no_wrap=True
+                self.categoria_nome = category
+                if category == None:
+                    self.categoria_id = str(self.dict_issue[id]['categoria'])
+                    self.categoria_nome = next(
+                        (nome for nome, id_str in self.dict_category.items() if id_str.strip("'") == self.categoria_id),
+                        None
+                    )
+                issue_row = ft.Row(
+                    [
+                        ft.Container(
+                            ft.Column(
+                                [                            
+                                    ft.Row(
+                                        [
+                                            ft.Container(width=50),
+                                            ft.Text(f'{id}', size=25, text_align='start', color='#35588e', weight=ft.FontWeight.W_500),
+                                        ]
                                     ),
+                                    ft.Row(
+                                        [
+                                            ft.Container(width=50),
+                                            ft.Container(
+                                                ft.Text(
+                                                    value = self.dict_issue[id]['descricao'], size=18,
+                                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                                ),
+                                                expand=True,
+                                                padding=ft.Padding(0,0,10,0)
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Divider(),
+                                    ft.Row(
+                                        [
+                                            ft.Container(),
+                                            ft.Text(f'N° de ocorrências: {self.dict_issue[id]["ocorrencias"]}', size=12),
+                                            ft.Text(f'Componente: {self.componentes_list[self.dict_issue[id]["componente_id"]]["nome"]}', size=12),
+                                            ft.Icon(ft.Icons.CIRCLE, size=10),
+                                            ft.Container(width=90),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    )
                                 ],
-                                width=700
-                            )
-                        ],
-                        spacing=0
-                    ),
+                                spacing=0
+                            ),
+                            bgcolor=ft.Colors.ON_PRIMARY,
+                            border_radius=16, border=ft.border.all(1, '#35588e'),
+                            padding=ft.Padding(0,10,0,10),
+                            margin=ft.Margin(10,0,0,0),
+                            on_click=lambda e, id = id, categ_nome = self.categoria_nome: self.issue_content(page, maq, model, id, categ = category if category != None else categ_nome),
+                            ink=True,
+                            shadow=ft.BoxShadow(
+                                offset=ft.Offset(6, 6),
+                                blur_style=ft.ShadowBlurStyle.NORMAL,
+                                blur_radius=2,
+                                spread_radius=1,
+                                color=ft.Colors.BLUE_GREY_100,
+                            ),
+                            expand=True,
+                        ),
+                        ft.Container(width=10),
+                    ],
+                    expand=True
                 )
                 comp_name = self.componentes_list[self.dict_issue[id]['componente_id']]['nome']
                 if comp and comp_name != comp:
@@ -1307,16 +1365,30 @@ class Arotec(ft.Container):
                             width=300
                         ),
                         border_radius= ft.BorderRadius(16,0,0,16),
-                        margin=ft.Margin(130,0,150,0),
+                        margin=ft.Margin(0,0,0,0),
                     ),
                 ],
                 alignment='center'
             ),
             ft.Container(
-                margin=ft.Margin(80,30,0,0),
-                content=self.list_opt,
+                margin=ft.Margin(0,30,0,0),
+                content=ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                self.list_opt,
+                            ],
+                            expand=True,
+                            horizontal_alignment='center',
+                        ),
+                    ],
+                    alignment='center',
+                    spacing=0
+                ),
                 expand=True,
-            ),
+                # bgcolor='grey',
+                padding=ft.Padding(15,0,0,0),
+            )
         )
 
         def new_issue(error=None, title=None, comp_selec=None):
@@ -1351,22 +1423,19 @@ class Arotec(ft.Container):
             self.componentes_list = requests.get(f'{self.link}/Componentes.json').json()
             self.comp_list_name = []
 
-            try:
-                suggestions = [
-                    err for err in self.dict_issue if self.dict_issue[err]['categoria'] == int(self.categ_id)
-                ]
-            except TypeError:
-                suggestions = []
-
             for id in self.componentes_maq:
                 if not id or id == 'status':
                     continue
-                componente_nome = self.componentes_list[id]['nome']
+                try:
+                    componente_nome = self.componentes_list[id]['nome']
+                except TypeError:
+                    id = int(id)
+                    componente_nome = self.componentes_list[id]['nome']
                 self.comp_list_name.append(componente_nome)
 
             self.last_id = len(self.comp_list_name)
                                
-            def save():
+            def save(verify=True):
                 self.saving_progress = True
                 if self.comp.value == None:
                     self.comp.value = 'vazio'
@@ -1377,42 +1446,139 @@ class Arotec(ft.Container):
                 )
                 if 'status' in error_list:
                     error_list.pop('status')
-                counter = 1
-                original_value = self.title.value
-                while self.title.value.capitalize() in error_list:
-
-                    parts = self.title.value.split("_")
-                    if len(parts) > 1 and parts[-1].isdigit():
-                        self.title.value = "_".join(parts[:-1])
-                    else:
-                        self.title.value = original_value
-                    self.title.value = f"{self.title.value}_{counter}"
-                    counter += 1
 
                 if self.problem.content.value == '' or self.title.value == '':
                     return
+                
+                def norm_text(text):
+                    text = re.sub(r'[^\w\s]', '', text)
+                    text = text.lower().strip()
+                    return text
+                
                 dlg.actions.clear()
-                dlg.actions.append(
-                    ft.Container(
-                        ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                        alignment=ft.alignment.center
+                normalized_title = norm_text(self.title.value)
+                normalized_descrip = norm_text(self.problem.content.value)
+                try:
+                    norm_keys_title = {norm_text(item): item for item in self.dict_issue}
+                    norm_keys_descrip = {norm_text(item['descricao']): item['descricao'] for chave, item in self.dict_issue.items()}
+                    match_txt, score_txt, _ = process.extractOne(normalized_descrip, norm_keys_descrip.keys(), scorer=fuzz.ratio)
+                    match, score, _ = process.extractOne(normalized_title, norm_keys_title.keys(), scorer=fuzz.ratio)
+                except TypeError:
+                    if category:
+                        dados = {
+                            'descricao' : self.problem.content.value, 'causa': 'Adicionar Causa', 
+                            'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução',
+                            'ocorrencias': 0, 'url_img': {'0': 'none'}
+                            }
+                    else:
+                        if self.categ.value == None:
+                            return
+                        dados = {
+                            'descricao' : self.problem.content.value, 'causa': 'Adicionar Causa',
+                            'categoria': int(self.dict_category[self.categ.value.strip()].strip("'\"")), 'componente_id': indice, 'solução': 'Adicionar Solução', 
+                            'ocorrencias': 0, 'url_img': {'0': 'none'}
+                            }
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
                     )
-                )
-                page.update()
-                if category:
-                    dados = {
-                        'descricao' : self.problem.content.value, 'causa': 'Adicionar Causa', 
-                        'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução',
-                        'ocorrencias': 0
-                        }
+                    page.update()
+                    requests.put(f'{self.link}/Equipamentos/{maq}/{model}/erros/{self.title.value.capitalize()}.json', data=json.dumps(dados))
+                    if 'status' in self.dict_issue:
+                        requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/erros/status.json')
+                    page.close(dlg)
+                    page.controls[0].content.controls[1].controls.pop()
+                    self.issue(page, maq, model, category)
+                    return
+         
+                threshold = 80
+                threshold_txt = 50
+
+                if score >= 98:
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.Icon(ft.Icons.WARNING),ft.Text(f'Erro {match.capitalize()} já adicionado anteriormente')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
+                elif score >= threshold and verify and match != 'status':
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.WARNING),ft.Text(f'Erro semelhante encontrado - {norm_keys_title[match]}'),
+                                    ft.Text(f'Deseja continuar salvando {self.title.value.capitalize()}?'),
+                                    ft.Row(
+                                        [
+                                            ft.TextButton('Cancelar', on_click=lambda e: page.close(dlg)),
+                                            ft.TextButton('Continuar', on_click=lambda e: save(verify=False))
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                    ),
+
+                                ], 
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER
+                            ),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
+
+                elif score_txt >= threshold_txt and verify and match_txt != 'status':
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.WARNING),ft.Row([ft.Text(f'Erro semelhante encontrado -'), 
+                                    ft.TextButton(f'{norm_keys_title[match]}')]), #adicionar função para abrir tela nova com resumo do erro
+                                    ft.Text(f'Deseja continuar salvando {self.title.value.capitalize()}?'),
+                                    ft.Row(
+                                        [
+                                            ft.TextButton('Cancelar', on_click=lambda e: page.close(dlg)),
+                                            ft.TextButton('Continuar', on_click=lambda e: save(verify=False))
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                    ),
+
+                                ], 
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER
+                            ),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    page.update()
                 else:
-                    dados = {'descricao' : self.problem.content.value, 'categoria': self.categ.value, 'componente_id': indice, 'solução': 'Adicionar Solução', 'ocorrencias': 0}
-                requests.put(f'{self.link}/Equipamentos/{maq}/{model}/erros/{self.title.value.capitalize()}.json', data=json.dumps(dados))
-                if 'status' in self.dict_issue:
-                    requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/erros/status.json')
-                page.close(dlg)
-                page.controls[0].content.controls[1].controls.pop()
-                self.issue(page, maq, model, category)
+                    if category:
+                        dados = {
+                            'descricao' : self.problem.content.value, 'causa': 'Adicionar Causa', 
+                            'categoria':int(self.categ_id), 'componente_id': indice, 'solução': 'Adicionar Solução',
+                            'ocorrencias': 0, 'url_img': {'0': 'none'}
+                            }
+                    else:
+                        if self.categ.value == None:
+                            return
+                        dados = {
+                            'descricao' : self.problem.content.value, 'causa': 'Adicionar Causa',
+                            'categoria': int(self.dict_category[self.categ.value.strip()].strip("'\"")), 'componente_id': indice, 'solução': 'Adicionar Solução', 
+                            'ocorrencias': 0, 'url_img': {'0': 'none'}
+                            }
+                    dlg.actions.append(
+                        ft.Container(
+                            ft.Column([ft.ProgressRing(), ft.Text('Salvando')], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            alignment=ft.alignment.center
+                        )
+                    )
+                    dlg.actions_padding = 30
+                    page.update()
+                    requests.put(f'{self.link}/Equipamentos/{maq}/{model}/erros/{self.title.value.capitalize()}.json', data=json.dumps(dados))
+                    if 'status' in self.dict_issue:
+                        requests.delete(f'{self.link}/Equipamentos/{maq}/{model}/erros/status.json')
+                    page.close(dlg)
+                    page.controls[0].content.controls[1].controls.pop()
+                    self.issue(page, maq, model, category)
 
             def new_comp():
                 self.saving_progress = True
@@ -1468,6 +1634,7 @@ class Arotec(ft.Container):
                 )
                 page.open(new_dlg)
             
+            self.saving_progress = False
             self.title = ft.TextField(label='Título', border_radius=16, value=title)
             # self.crm_link = ft.TextField(label='CRM Link', border_radius=16, value=title)
             self.comp = ft.Dropdown(
@@ -1476,7 +1643,8 @@ class Arotec(ft.Container):
                     for item in self.comp_list_name
                 ],
                 label='Componente', border_radius=16,
-                max_menu_height = 200, filled=None
+                max_menu_height = 200, filled=None,
+                value=comp_selec
             )
             self.problem = ft.Container(
                 ft.TextField(
@@ -1510,7 +1678,7 @@ class Arotec(ft.Container):
                                 [   
                                     ft.FilledButton(text="Novo Componente", width=150, on_click=lambda e: new_comp()),
                                     ft.Container(),
-                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(), width=150),
+                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(verify=True), width=150),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_AROUND
                             ),
@@ -1526,7 +1694,7 @@ class Arotec(ft.Container):
                                 [   
                                     ft.FilledButton(text="Novo Componente", width=150, on_click=lambda e: new_comp()),
                                     ft.Container(),
-                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(), width=150),
+                                    ft.FilledButton(text="Salvar", on_click=lambda e: save(verify=True), width=150),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_AROUND
                             ),
@@ -1537,6 +1705,7 @@ class Arotec(ft.Container):
                     ),
                 ],
                 actions_padding=10,
+                on_dismiss= lambda e: exit()
             )
             page.open(dlg)
 
@@ -1567,8 +1736,14 @@ class Arotec(ft.Container):
         issue_des = dict_issue['descricao']
         issue_sol = dict_issue['solução']
         issue_causa = dict_issue['causa']
+        issue_categ = int(dict_issue['categoria'])
         comp_issue = dict_issue['componente_id']
         comp_name = self.componentes_list[comp_issue]['nome']
+        img_url = dict_issue['url_img']
+
+        category_lookup = {value.strip("'"): key for key, value in self.dict_category.items()}
+        categoria_nome = category_lookup.get(str(issue_categ), "AROTEC")
+
         if comp_issue != 0:
             comp_fab = self.componentes_list[comp_issue]['fabricante']
 
@@ -1578,97 +1753,159 @@ class Arotec(ft.Container):
 
         sol_widget = ft.Container(
             content=(
-                ft.Text(issue_sol, size=14, selectable=True) 
+                ft.Text(issue_sol, size=16, selectable=True) 
             ),
             bgcolor=ft.Colors.ON_INVERSE_SURFACE,
             padding=ft.Padding(10, 10, 10, 10),
             border_radius=16,
             width=1000
         ) if issue_sol != 'Adicionar Solução' else ft.ElevatedButton(
-            content=ft.Text(issue_sol, size=14), bgcolor=ft.Colors.ON_INVERSE_SURFACE, 
+            content=ft.Text(issue_sol, size=16), bgcolor=ft.Colors.ON_INVERSE_SURFACE, 
             on_click=lambda e: add_solution(issue)
         )
 
         causa_widget = ft.Container(
             content=(
-                ft.Text(issue_causa, size=14, selectable=True) 
+                ft.Text(issue_causa, size=16, selectable=True) 
             ),
             bgcolor=ft.Colors.ON_INVERSE_SURFACE,
             padding=ft.Padding(10, 10, 10, 10),
             border_radius=16,
             width=1000
         ) if issue_causa != 'Adicionar Causa' else ft.ElevatedButton(
-            content=ft.Text(issue_causa, size=14), bgcolor=ft.Colors.ON_INVERSE_SURFACE, 
+            content=ft.Text(issue_causa, size=16), bgcolor=ft.Colors.ON_INVERSE_SURFACE, 
             on_click=lambda e: add_causa(issue)
         )
           
         comp_widget = ft.Container(
-                content = ft.Text(f'{comp_name.capitalize()} / {comp_fab.capitalize()}', size=14, selectable=True),
+                content = ft.Text(f'{comp_name.capitalize()} / {comp_fab.capitalize()}', size=16, selectable=True),
                 bgcolor=ft.Colors.ON_INVERSE_SURFACE,
                 padding=ft.Padding(10,10,10,10),
                 border_radius=16,
                 width=250
             ) if comp_name != 'vazio' else ft.ElevatedButton(
-                text="Adicionar Componente",
+                content=ft.Text('Adicionar Componente', size=16),
                 bgcolor=ft.Colors.ON_INVERSE_SURFACE,
                 on_click=lambda e: add_comp()
             )
+        files_list = []
+        for  url in img_url.values():
+            img_widget = ft.OutlinedButton(
+                    text= url.split("/")[-1].split("?")[0],
+                    icon=ft.Icons.IMAGE, on_click=lambda _, url=url: page.launch_url(url),
+                ) if url != 'none' else ft.ElevatedButton(
+                    "Pick files",
+                    icon=ft.Icons.UPLOAD_FILE,
+                    on_click=lambda _: pick_files_dialog.pick_files(
+                        allow_multiple=True
+                    ),
+                )
+            files_list.append(img_widget)
         
         page.add(
-            ft.Row(
-                [
-                    ft.Container(
-                        bgcolor="#35588e",
-                        content=ft.Row(
-                            [
-                                ft.Text(f'{categ}', size=24, color='#ffffff', theme_style=ft.TextThemeStyle.DISPLAY_LARGE),
-                            ],
-                            alignment = ft.MainAxisAlignment.CENTER,
-                            width=300
-                        ),
-                        border_radius= ft.BorderRadius(16,0,0,16),
-                        margin=ft.Margin(150,20,150,20),
-                        on_click= lambda e: self.issue(page, maq, model, categ)
-                    ),
-                ],
-                alignment='center'
-            ),
-            ft.Row([ft.Text(f'{issue}', size=22, color='#35588e')], alignment='center')
-            )
-
-        page.add(
             ft.Container(
-                margin=ft.Margin(300,10,300,0),
-                content=ft.Column(
-                    [
-                        # ft.Row([ft.Text(f'{issue}', size=22, color='#35588e')], alignment='center'),
-                        ft.Container(height=15),
-                        ft.Row([ft.Text('Detalhes do Erro:', size=16, color='black')]),
-                        ft.Container(
-                            content=ft.Text(issue_des, size=14, selectable=True),
-                            bgcolor=ft.Colors.ON_INVERSE_SURFACE,
-                            padding=ft.Padding(10,10,10,10),
-                            border_radius=16,
-                            width=1000
+                ft.Column([
+                    ft.Container(
+                        ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            bgcolor="#35588e",
+                                            content=ft.Row(
+                                                [
+                                                    ft.Text(
+                                                        value=f'{categ}' if categ != None else categoria_nome,
+                                                        size=24, color='#ffffff', 
+                                                        theme_style=ft.TextThemeStyle.DISPLAY_LARGE
+                                                    ),
+                                                ],
+                                                alignment = ft.MainAxisAlignment.CENTER,
+                                                width=300
+                                            ),
+                                            border_radius= ft.BorderRadius(16,0,0,16),
+                                            margin=ft.Margin(0,20,0,15),
+                                        ),
+                                    ],
+                                    alignment='center'
+                                ),
+                                ft.Row([ft.Text(f'{issue}', size=22, color='#35588e', weight=ft.FontWeight.W_500)], alignment='center'),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row([ft.Text('Detalhes do Erro:', size=22, color='black')]),
+                                                    ft.Container(
+                                                        content=ft.Text(issue_des, size=16, selectable=True),
+                                                        bgcolor=ft.Colors.ON_INVERSE_SURFACE,
+                                                        padding=ft.Padding(10,10,10,10),
+                                                        border_radius=16,
+                                                        width=1000
+                                                    ),
+                                                    ft.Container(height=15),
+                                                    ft.Text('Causa:', size=22),
+                                                    causa_widget,
+                                                    ft.Container(height=15),
+                                                    ft.Text('Solução:', size=22),
+                                                    sol_widget,
+                                                    ft.Container(height=15),
+                                                    ft.Text('Componente:', size=22),
+                                                    comp_widget,
+                                                    ft.Container(height=15),
+                                                    ft.Text('Arquivos:', size=22),
+                                                    ft.Row(
+                                                        controls=files_list
+                                                    )
+                                                ],
+                                                spacing=5,
+                                                scroll=True,
+                                                expand=True,
+                                            ),
+                                        ),
+                                    ],
+                                    alignment='center',
+                                )
+                            ],
+                            expand=True
                         ),
-                        ft.Container(height=15),
-                        ft.Text('Causa:', size=16),
-                        causa_widget,
-                        ft.Container(height=15),
-                        ft.Text('Solução:', size=16),
-                        sol_widget,
-                        ft.Container(height=15),
-                        ft.Text('Componente:', size=16),
-                        comp_widget,
-                    ],
-                    spacing=5,
-                    scroll=True,
-                    expand=True,
-                ),
+                    border=ft.border.all(1, '#35588e'),
+                    border_radius=16,
+                    padding=ft.Padding(0,0,0,20),    
+                    margin=ft.Margin(100,50,100,50),
+                    # expand=True,
+                    bgcolor=ft.Colors.ON_PRIMARY,
+                    ),
+                ], expand=True, scroll=True, alignment='center'),
+                bgcolor='#35588e', expand=True
             )
         )
+        page.update()
+
+        def add_files(e: ft.FilePickerResultEvent):
+            def upload_to_firebase(file_path, file_name):
+                print(file_path, '\n', file_name)  # Verifique no console
+                self.storage.child(file_name).put(file_path)
+                url = self.storage.child(file_name).get_url(file_name)
+                return url
+
+            if e.files:
+                for file in e.files:
+                    url = upload_to_firebase(file.path, file.name)
+                    path = f'{self.link}/Equipamentos/{maq}/{model}/erros/{issue}/url_img'
+                    requests.post(f"{path}.json", json=url)
+                    print("URL gerada:", url)  # Verifique no console
 
         page.update()
+
+        pick_files_dialog = ft.FilePicker(on_result=add_files)
+        page.add(pick_files_dialog)
+
+        # pick_files_dialog.pick_files(
+        #         allow_multiple=True,
+        #         file_type=ft.FilePickerFileType.CUSTOM,
+        #         allowed_extensions=['jpg', 'jpeg', 'png', 'pdf'],
+        #     )
         
         def add_causa(issue, text=''):
             def exit():
@@ -1824,9 +2061,13 @@ class Arotec(ft.Container):
         def add_comp():
             def save():
                 for id in self.componentes_maq:
-                    if not id or id == 'status':
+                    if not id or id == 'status'or id == 'vazio':
                         continue
-                    componente_nome = self.componentes_list[id]['nome']
+                    try:
+                        componente_nome = self.componentes_list[id]['nome']
+                    except TypeError:
+                        id = int(id)
+                        componente_nome = self.componentes_list[id]['nome']
                     if componente_nome == self.comp.value:
                         comp_id = id
                         break
@@ -1840,9 +2081,13 @@ class Arotec(ft.Container):
             self.comp_list_name = []
 
             for id in self.componentes_maq:
-                if not id or id == 'status':
+                if not id or id == 'status' or id == 'vazio':
                     continue
-                componente_nome = self.componentes_list[id]['nome']
+                try:
+                    componente_nome = self.componentes_list[id]['nome']
+                except TypeError:
+                    id = int(id)
+                    componente_nome = self.componentes_list[id]['nome']
                 self.comp_list_name.append(componente_nome)
 
             self.last_id = len(self.comp_list_name)
@@ -1932,7 +2177,11 @@ class Arotec(ft.Container):
         for id in self.componentes_maq:
             if not id or id == 'vazio' or id == 'status':
                 continue
-            componente_nome = self.componentes_list[int(id)]['nome']
+            try:
+                componente_nome = self.componentes_list[id]['nome']
+            except TypeError:
+                id = int(id)
+                componente_nome = self.componentes_list[id]['nome']
             self.comp_list_name.append(componente_nome)
 
 
@@ -2162,6 +2411,16 @@ def main(page: ft.Page):
     page.window.maximized = True
     page.theme_mode = ft.ThemeMode.LIGHT
 
+    firebase_config = {
+            'apiKey': "AIzaSyC6P2wjLFX-u-0G1GKHex4ShTjP-bysnI8",
+            'authDomain': "appat-5805e.firebaseapp.com",
+            'databaseURL': "https://appat-5805e-default-rtdb.firebaseio.com",
+            'projectId': "appat-5805e",
+            'storageBucket': "appat-5805e.firebasestorage.app",
+            'serviceAccount': "serviceAccountKey.json"
+        }
+    firebase = pyrebase.initialize_app(firebase_config)
+
     CONFIG_FILE = "config.json"
 
     def load_login_state():
@@ -2170,16 +2429,16 @@ def main(page: ft.Page):
                 try:
                     return json.load(f)
                 except json.JSONDecodeError:
-                    return {"stay_logged_in": False, "username": None}
+                    return {"stay_logged_in": False, "username": None, "refresh_token": None}
         else:
-            return {"stay_logged_in": False, "username": None}
+            return {"stay_logged_in": False, "username": None, "refresh_token": None}
     
     login_state = load_login_state()
     try:
         if not login_state["stay_logged_in"]:
             Loading(page)
         else:
-            HomeScreen(page, login_state["username"])
+            HomeScreen(page, login_state["username"], firebase)
     except requests.exceptions.ConnectionError:
         page.add(
             ft.Text("Sem conexão com a internet", size=24, color="red"),
@@ -2188,4 +2447,4 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(target=main,  assets_dir="assets")
+    ft.app(target=main,  assets_dir="assets",)
